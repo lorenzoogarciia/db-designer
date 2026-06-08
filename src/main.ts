@@ -20,6 +20,7 @@ import {
   toggleTheme,
   type AppTheme,
 } from "./theme";
+import { buildRoutedRelationPath, type FieldAnchor } from "./relation-routing";
 import "./style.css";
 type RelationKind = "1:1" | "1:N" | "N:M";
 
@@ -69,9 +70,9 @@ interface ExportedProject {
   zoom: number;
 }
 
-const TABLE_MIN_WIDTH = 320;
-const TABLE_HEADER_HEIGHT = 58;
-const TABLE_ROW_HEIGHT = 34;
+const TABLE_MIN_WIDTH = 260;
+const TABLE_HEADER_HEIGHT = 64;
+const TABLE_ROW_HEIGHT = 42;
 const BASE_PADDING = 40;
 const CANVAS_GUTTER = 800;
 const MAX_EXPORT_SIDE = 8192;
@@ -689,12 +690,52 @@ function fieldTypeLabel(field: Field): string {
   return `enum(${preview}${suffix})`;
 }
 
+const measuredTableWidths = new Map<string, number>();
+
+function getFieldMetaLabel(field: Field) {
+  return `${fieldTypeLabel(field)}${field.nullable ? "?" : ""}${field.isPrimary ? " | PK" : ""}${field.isUnique && !field.isPrimary ? " | UQ" : ""}${field.autoIncrement ? " | AI" : ""}${field.isIndexed && !field.isPrimary && !field.isUnique ? " | IDX" : ""}`;
+}
+
+function estimateTableWidth(table: Table) {
+  const titleCharWidth = 9.5;
+  const nameCharWidth = 8.5;
+  const metaCharWidth = 7;
+  const headerActionsWidth = 210;
+  const rowActionsWidth = 168;
+  const rowOrderWidth = 88;
+  const rowGap = 24;
+  const horizontalPadding = 32;
+
+  let maxWidth = TABLE_MIN_WIDTH;
+  const headerWidth = table.name.length * titleCharWidth + headerActionsWidth + horizontalPadding;
+  maxWidth = Math.max(maxWidth, headerWidth);
+
+  table.fields.forEach((field) => {
+    const meta = getFieldMetaLabel(field);
+    const rowWidth =
+      field.name.length * nameCharWidth + meta.length * metaCharWidth + rowActionsWidth + rowOrderWidth + rowGap + horizontalPadding;
+    maxWidth = Math.max(maxWidth, rowWidth);
+  });
+
+  return Math.ceil(maxWidth);
+}
+
 function getTableHeight(table: Table) {
   return TABLE_HEADER_HEIGHT + table.fields.length * TABLE_ROW_HEIGHT;
 }
 
 function getTableWidth(table: Table) {
-  return Math.max(TABLE_MIN_WIDTH, table.name.length * 10 + 170);
+  return measuredTableWidths.get(table.id) ?? estimateTableWidth(table);
+}
+
+function measureTableWidths() {
+  measuredTableWidths.clear();
+  state.tables.forEach((table) => {
+    const element = diagramElement.querySelector<HTMLElement>(`.table-card[data-table-id="${table.id}"]`);
+    if (element) {
+      measuredTableWidths.set(table.id, element.offsetWidth);
+    }
+  });
 }
 
 function getCanvasBounds() {
@@ -1140,12 +1181,6 @@ function relationStyle(kind: RelationKind) {
   return "rel-one-many";
 }
 
-interface FieldAnchor {
-  x: number;
-  y: number;
-  side: "left" | "right" | "top" | "bottom";
-}
-
 function chooseAnchors(fromTable: Table, fromFieldId: string, toTable: Table, toFieldId: string): { from: FieldAnchor; to: FieldAnchor } {
   const fromFieldIndex = fromTable.fields.findIndex((field) => field.id === fromFieldId);
   const toFieldIndex = toTable.fields.findIndex((field) => field.id === toFieldId);
@@ -1183,37 +1218,32 @@ function chooseAnchors(fromTable: Table, fromFieldId: string, toTable: Table, to
   };
 }
 
-function buildRelationPath(from: FieldAnchor, to: FieldAnchor, laneOffset: number): string {
-  const spread = 56 + laneOffset * 18;
-  const startX = (from.x + CANVAS_GUTTER) * state.zoom;
-  const startY = (from.y + CANVAS_GUTTER) * state.zoom;
-  const endX = (to.x + CANVAS_GUTTER) * state.zoom;
-  const endY = (to.y + CANVAS_GUTTER) * state.zoom;
-
-  if (from.side === "right" && to.side === "left") {
-    const controlX1 = startX + spread;
-    const controlX2 = endX - spread;
-    return `M ${startX} ${startY} C ${controlX1} ${startY}, ${controlX2} ${endY}, ${endX} ${endY}`;
-  }
-  if (from.side === "left" && to.side === "right") {
-    const controlX1 = startX - spread;
-    const controlX2 = endX + spread;
-    return `M ${startX} ${startY} C ${controlX1} ${startY}, ${controlX2} ${endY}, ${endX} ${endY}`;
-  }
-
-  const verticalSpread = 42 + laneOffset * 14;
-  if (from.side === "bottom" && to.side === "top") {
-    const controlY1 = startY + verticalSpread;
-    const controlY2 = endY - verticalSpread;
-    return `M ${startX} ${startY} C ${startX} ${controlY1}, ${endX} ${controlY2}, ${endX} ${endY}`;
-  }
-  const controlY1 = startY - verticalSpread;
-  const controlY2 = endY + verticalSpread;
-  return `M ${startX} ${startY} C ${startX} ${controlY1}, ${endX} ${controlY2}, ${endX} ${endY}`;
+function getRouteTables() {
+  return state.tables.map((table) => ({
+    id: table.id,
+    x: table.x,
+    y: table.y,
+    width: getTableWidth(table),
+    height: getTableHeight(table),
+  }));
 }
 
 function relationLaneKey(relation: Relation) {
   return `${relation.fromTableId}:${relation.fromFieldId}->${relation.toTableId}:${relation.toFieldId}`;
+}
+
+function moveField(tableId: string, fieldId: string, direction: "up" | "down") {
+  const table = getTableById(tableId);
+  if (!table) return;
+  const index = table.fields.findIndex((field) => field.id === fieldId);
+  if (index < 0) return;
+  const targetIndex = direction === "up" ? index - 1 : index + 1;
+  if (targetIndex < 0 || targetIndex >= table.fields.length) return;
+  const [field] = table.fields.splice(index, 1);
+  table.fields.splice(targetIndex, 0, field);
+  persistState();
+  refreshSelects();
+  renderDiagram();
 }
 
 function editRelationKind(relationId: string) {
@@ -1247,12 +1277,10 @@ function removeRelation(relationId: string) {
   renderDiagram();
 }
 
-function renderDiagram() {
-  ensureTablePositions();
-  zoomLabelElement.textContent = `${Math.round(state.zoom * 100)}%`;
-  const bounds = getCanvasBounds();
+function buildRelationMarkup(bounds: ReturnType<typeof getCanvasBounds>) {
   const laneUsage = new Map<string, number>();
-  const relationMarkup = state.relations
+  const routeTables = getRouteTables();
+  return state.relations
     .map((relation, index) => {
       const fromTable = getTableById(relation.fromTableId);
       const toTable = getTableById(relation.toTableId);
@@ -1261,9 +1289,16 @@ function renderDiagram() {
       const laneOffset = laneUsage.get(laneKey) ?? 0;
       laneUsage.set(laneKey, laneOffset + 1);
       const { from: fromAnchor, to: toAnchor } = chooseAnchors(fromTable, relation.fromFieldId, toTable, relation.toFieldId);
-      const path = buildRelationPath(fromAnchor, toAnchor, laneOffset);
-      const labelX = ((fromAnchor.x + toAnchor.x) / 2 + CANVAS_GUTTER) * state.zoom;
-      const labelY = ((fromAnchor.y + toAnchor.y) / 2 + CANVAS_GUTTER) * state.zoom + laneOffset * 10;
+      const { path, labelPoint } = buildRoutedRelationPath(
+        fromAnchor,
+        toAnchor,
+        routeTables,
+        relation.fromTableId,
+        relation.toTableId,
+        laneOffset,
+        CANVAS_GUTTER,
+        state.zoom,
+      );
       const fromField = getFieldName(relation.fromTableId, relation.fromFieldId);
       const toField = getFieldName(relation.toTableId, relation.toFieldId);
       const fromTableName = fromTable.name;
@@ -1272,8 +1307,8 @@ function renderDiagram() {
       const relationTooltip = `${fromTableName}.${fromField} -> ${toTableName}.${toField}`;
       const labelWidth = 88;
       const labelOffsetX = -labelWidth / 2;
-      const scaledLabelX = clamp(labelX, labelWidth / 2 + 8, bounds.scaledWidth - labelWidth / 2 - 8);
-      const scaledLabelY = clamp(labelY, 16, bounds.scaledHeight - 8);
+      const scaledLabelX = clamp(labelPoint.x, labelWidth / 2 + 8, bounds.scaledWidth - labelWidth / 2 - 8);
+      const scaledLabelY = clamp(labelPoint.y, 16, bounds.scaledHeight - 8);
       return `
         <g class="relation-bundle" data-relation-id="${relation.id}" style="--relation-z:${20 + index}">
           <path class="relation-path ${relationStyle(relation.kind)}" data-relation-id="${relation.id}" d="${path}" marker-end="url(#arrow-head)">
@@ -1299,30 +1334,38 @@ function renderDiagram() {
       `;
     })
     .join("");
+}
 
-  const tableMarkup = state.tables
+function buildTableMarkup() {
+  return state.tables
     .map((table) => {
       const fields = table.fields
         .map(
-          (field) => `
+          (field, fieldIndex) => `
             <li>
-              <span>${field.name}</span>
+              <div class="field-left">
+                <div class="field-order-actions">
+                  <button type="button" class="field-order-btn" data-action="move-field-up" data-table-id="${table.id}" data-field-id="${field.id}" ${fieldIndex === 0 ? "disabled" : ""} title="Subir campo">↑</button>
+                  <button type="button" class="field-order-btn" data-action="move-field-down" data-table-id="${table.id}" data-field-id="${field.id}" ${fieldIndex === table.fields.length - 1 ? "disabled" : ""} title="Bajar campo">↓</button>
+                </div>
+                <span class="field-name">${field.name}</span>
+              </div>
               <div class="field-right">
-                <small>${fieldTypeLabel(field)}${field.nullable ? "?" : ""}${field.isPrimary ? " | PK" : ""}${field.isUnique && !field.isPrimary ? " | UQ" : ""}${field.autoIncrement ? " | AI" : ""}${field.isIndexed && !field.isPrimary && !field.isUnique ? " | IDX" : ""}</small>
-                <button type="button" class="neutral-btn inline-btn" data-action="edit-field" data-table-id="${table.id}" data-field-id="${field.id}">Editar</button>
-                <button type="button" class="danger-btn inline-btn" data-action="delete-field" data-table-id="${table.id}" data-field-id="${field.id}">X</button>
+                <small>${getFieldMetaLabel(field)}</small>
+                <button type="button" class="neutral-btn table-action-btn" data-action="edit-field" data-table-id="${table.id}" data-field-id="${field.id}">Editar</button>
+                <button type="button" class="danger-btn table-action-btn" data-action="delete-field" data-table-id="${table.id}" data-field-id="${field.id}">X</button>
               </div>
             </li>
           `,
         )
         .join("");
       return `
-        <article class="table-card" data-table-id="${table.id}" style="left:${(table.x + CANVAS_GUTTER) * state.zoom}px;top:${(table.y + CANVAS_GUTTER) * state.zoom}px;width:${getTableWidth(table)}px;transform:scale(${state.zoom})">
+        <article class="table-card" data-table-id="${table.id}" style="left:${(table.x + CANVAS_GUTTER) * state.zoom}px;top:${(table.y + CANVAS_GUTTER) * state.zoom}px;transform:scale(${state.zoom})">
           <div class="table-card-header">
             <h3>${table.name}</h3>
             <div class="table-actions">
-              <button type="button" class="neutral-btn inline-btn" data-action="rename-table" data-table-id="${table.id}">Editar</button>
-              <button type="button" class="danger-btn inline-btn" data-action="delete-table" data-table-id="${table.id}">Eliminar</button>
+              <button type="button" class="neutral-btn table-action-btn" data-action="rename-table" data-table-id="${table.id}">Editar</button>
+              <button type="button" class="danger-btn table-action-btn" data-action="delete-table" data-table-id="${table.id}">Eliminar</button>
             </div>
           </div>
           <ul>${fields}</ul>
@@ -1330,6 +1373,15 @@ function renderDiagram() {
       `;
     })
     .join("");
+}
+
+function renderDiagram() {
+  ensureTablePositions();
+  zoomLabelElement.textContent = `${Math.round(state.zoom * 100)}%`;
+  measuredTableWidths.clear();
+
+  let bounds = getCanvasBounds();
+  const tableMarkup = buildTableMarkup();
 
   diagramElement.innerHTML = `
     <div id="diagram-scene" class="diagram-scene" style="width:${bounds.scaledWidth}px;height:${bounds.scaledHeight}px">
@@ -1340,10 +1392,31 @@ function renderDiagram() {
             <polygon points="0 0, 10 4, 0 8" class="arrow-head"></polygon>
           </marker>
         </defs>
-        ${relationMarkup}
       </svg>
     </div>
   `;
+
+  measureTableWidths();
+  bounds = getCanvasBounds();
+
+  const scene = diagramElement.querySelector<HTMLElement>("#diagram-scene");
+  const relationLayer = diagramElement.querySelector<SVGSVGElement>(".relation-layer");
+  if (scene) {
+    scene.style.width = `${bounds.scaledWidth}px`;
+    scene.style.height = `${bounds.scaledHeight}px`;
+  }
+  if (relationLayer) {
+    relationLayer.setAttribute("width", String(bounds.scaledWidth));
+    relationLayer.setAttribute("height", String(bounds.scaledHeight));
+    relationLayer.innerHTML = `
+      <defs>
+        <marker id="arrow-head" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto">
+          <polygon points="0 0, 10 4, 0 8" class="arrow-head"></polygon>
+        </marker>
+      </defs>
+      ${buildRelationMarkup(bounds)}
+    `;
+  }
 }
 
 function safeDownloadLink(link: HTMLAnchorElement) {
@@ -1554,6 +1627,8 @@ diagramElement.addEventListener("click", (event) => {
   if (action === "delete-table" && target.dataset.tableId) return removeTable(target.dataset.tableId);
   if (action === "edit-field" && target.dataset.tableId && target.dataset.fieldId) return openFieldEditModal(target.dataset.tableId, target.dataset.fieldId);
   if (action === "delete-field" && target.dataset.tableId && target.dataset.fieldId) removeField(target.dataset.tableId, target.dataset.fieldId);
+  if (action === "move-field-up" && target.dataset.tableId && target.dataset.fieldId) moveField(target.dataset.tableId, target.dataset.fieldId, "up");
+  if (action === "move-field-down" && target.dataset.tableId && target.dataset.fieldId) moveField(target.dataset.tableId, target.dataset.fieldId, "down");
 });
 
 diagramElement.addEventListener("mousedown", (event) => {
