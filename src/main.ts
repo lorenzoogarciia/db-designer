@@ -1,8 +1,16 @@
 import html2canvas from "html2canvas";
+import {
+  DATA_TYPE_OPTIONS,
+  dataTypeLabel,
+  isAutoIncrementType,
+  isIntegerLikeType,
+  mapDataTypeToSql,
+  normalizeDataType,
+  type DataType,
+  type SqlDialect,
+} from "./data-types";
+import { mountSearchableSelect, type SelectOption } from "./searchable-select";
 import "./style.css";
-
-type DataType = "id" | "uuid" | "integer" | "float" | "double" | "text" | "boolean" | "date" | "timestamp" | "enum";
-type SqlDialect = "mysql" | "sqlserver";
 type RelationKind = "1:1" | "1:N" | "N:M";
 
 interface Field {
@@ -129,9 +137,9 @@ function escapeSqlStringLiteral(value: string): string {
 }
 
 function normalizeField(raw: Field): Field {
-  const type = raw.type ?? "text";
-  const autoIncrement = Boolean(raw.autoIncrement) || type === "id";
-  const isPrimary = Boolean(raw.isPrimary) || type === "id";
+  const type = normalizeDataType(raw.type ?? "text");
+  const autoIncrement = Boolean(raw.autoIncrement) || isAutoIncrementType(type);
+  const isPrimary = Boolean(raw.isPrimary) || isAutoIncrementType(type);
   const enumValues =
     type === "enum"
       ? dedupeEnumValues(Array.isArray(raw.enumValues) ? raw.enumValues.map((item) => String(item).trim()).filter((item) => item.length > 0) : [])
@@ -140,7 +148,7 @@ function normalizeField(raw: Field): Field {
     id: raw.id,
     name: raw.name,
     type,
-    nullable: type === "id" || autoIncrement ? false : Boolean(raw.nullable),
+    nullable: isAutoIncrementType(type) || autoIncrement ? false : Boolean(raw.nullable),
     isPrimary,
     isUnique: Boolean(raw.isUnique) || isPrimary,
     autoIncrement,
@@ -237,7 +245,7 @@ app.innerHTML = `
         <h2>Proyectos</h2>
         <div class="form-grid">
           <label for="project-select">Proyecto activo</label>
-          <select id="project-select"></select>
+          <div id="project-select" class="searchable-select-host"></div>
           <div class="sql-actions">
             <button id="project-new-btn" type="button">Nuevo</button>
             <button id="project-rename-btn" type="button">Renombrar</button>
@@ -264,22 +272,11 @@ app.innerHTML = `
         <h2>Nuevo campo</h2>
         <form id="field-form" class="form-grid">
           <label for="field-table">Tabla</label>
-          <select id="field-table" name="tableId" required></select>
+          <div id="field-table" class="searchable-select-host"></div>
           <label for="field-name">Campo</label>
           <input id="field-name" name="fieldName" placeholder="customer_id" required />
           <label for="field-type">Tipo</label>
-          <select id="field-type" name="fieldType" required>
-            <option value="id">id (autoincremental)</option>
-            <option value="uuid">uuid</option>
-            <option value="integer">integer</option>
-            <option value="float">float</option>
-            <option value="double">double</option>
-            <option value="text">text</option>
-            <option value="boolean">boolean</option>
-            <option value="date">date</option>
-            <option value="timestamp">timestamp</option>
-            <option value="enum">enum</option>
-          </select>
+          <div id="field-type" class="searchable-select-host"></div>
           <label for="field-enum-values" id="field-enum-values-label" hidden>Valores enum (opcional)</label>
           <textarea id="field-enum-values" name="enumValues" rows="2" placeholder="Separados por coma o una por linea (ej: pending, active, done)" hidden></textarea>
           <label class="checkbox-row"><input id="field-nullable" type="checkbox" name="nullable" /> Permite null</label>
@@ -295,19 +292,15 @@ app.innerHTML = `
         <h2>Nueva relacion</h2>
         <form id="relation-form" class="form-grid">
           <label for="from-table">Desde tabla</label>
-          <select id="from-table" name="fromTableId" required></select>
+          <div id="from-table" class="searchable-select-host"></div>
           <label for="from-field">Desde campo</label>
-          <select id="from-field" name="fromFieldId" required></select>
+          <div id="from-field" class="searchable-select-host"></div>
           <label for="to-table">Hacia tabla</label>
-          <select id="to-table" name="toTableId" required></select>
+          <div id="to-table" class="searchable-select-host"></div>
           <label for="to-field">Hacia campo</label>
-          <select id="to-field" name="toFieldId" required></select>
+          <div id="to-field" class="searchable-select-host"></div>
           <label for="relation-kind">Tipo de relacion</label>
-          <select id="relation-kind" name="relationKind" required>
-            <option value="1:1">1:1</option>
-            <option value="1:N">1:N</option>
-            <option value="N:M">N:M</option>
-          </select>
+          <div id="relation-kind" class="searchable-select-host"></div>
           <button type="submit">Agregar relacion</button>
         </form>
       </div>
@@ -316,6 +309,7 @@ app.innerHTML = `
         <h2>Generar SQL</h2>
         <div class="sql-actions">
           <button id="sql-mysql-btn" type="button">MySQL</button>
+          <button id="sql-postgresql-btn" type="button">PostgreSQL</button>
           <button id="sql-sqlserver-btn" type="button">SQL Server</button>
         </div>
       </div>
@@ -359,18 +353,7 @@ app.innerHTML = `
         <label for="field-edit-name">Nombre</label>
         <input id="field-edit-name" required />
         <label for="field-edit-type">Tipo</label>
-        <select id="field-edit-type" required>
-          <option value="id">id (autoincremental)</option>
-          <option value="uuid">uuid</option>
-          <option value="integer">integer</option>
-          <option value="float">float</option>
-          <option value="double">double</option>
-          <option value="text">text</option>
-          <option value="boolean">boolean</option>
-          <option value="date">date</option>
-          <option value="timestamp">timestamp</option>
-          <option value="enum">enum</option>
-        </select>
+        <div id="field-edit-type" class="searchable-select-host"></div>
         <label for="field-edit-enum-values" id="field-edit-enum-values-label" hidden>Valores enum (opcional)</label>
         <textarea id="field-edit-enum-values" rows="2" placeholder="Separados por coma o una por linea" hidden></textarea>
         <label class="checkbox-row"><input id="field-edit-nullable" type="checkbox" /> Permite null</label>
@@ -387,7 +370,7 @@ app.innerHTML = `
 const tableForm = document.querySelector<HTMLFormElement>("#table-form");
 const fieldForm = document.querySelector<HTMLFormElement>("#field-form");
 const fieldNameInput = document.querySelector<HTMLInputElement>("#field-name");
-const fieldTypeSelect = document.querySelector<HTMLSelectElement>("#field-type");
+const fieldTypeHost = document.querySelector<HTMLDivElement>("#field-type");
 const fieldNullableInput = document.querySelector<HTMLInputElement>("#field-nullable");
 const fieldPrimaryInput = document.querySelector<HTMLInputElement>("#field-primary");
 const fieldUniqueInput = document.querySelector<HTMLInputElement>("#field-unique");
@@ -401,7 +384,7 @@ const zoomOutButton = document.querySelector<HTMLButtonElement>("#zoom-out-btn")
 const zoomInButton = document.querySelector<HTMLButtonElement>("#zoom-in-btn");
 const fitButton = document.querySelector<HTMLButtonElement>("#fit-btn");
 const zoomLabel = document.querySelector<HTMLSpanElement>("#zoom-label");
-const projectSelect = document.querySelector<HTMLSelectElement>("#project-select");
+const projectSelectHost = document.querySelector<HTMLDivElement>("#project-select");
 const projectNewButton = document.querySelector<HTMLButtonElement>("#project-new-btn");
 const projectRenameButton = document.querySelector<HTMLButtonElement>("#project-rename-btn");
 const projectDeleteButton = document.querySelector<HTMLButtonElement>("#project-delete-btn");
@@ -409,6 +392,7 @@ const projectExportJsonButton = document.querySelector<HTMLButtonElement>("#proj
 const projectImportJsonButton = document.querySelector<HTMLButtonElement>("#project-import-json-btn");
 const projectImportJsonInput = document.querySelector<HTMLInputElement>("#project-import-json-input");
 const mysqlButton = document.querySelector<HTMLButtonElement>("#sql-mysql-btn");
+const postgresqlButton = document.querySelector<HTMLButtonElement>("#sql-postgresql-btn");
 const sqlServerButton = document.querySelector<HTMLButtonElement>("#sql-sqlserver-btn");
 const sqlModal = document.querySelector<HTMLDivElement>("#sql-modal");
 const sqlModalTitle = document.querySelector<HTMLHeadingElement>("#sql-modal-title");
@@ -421,7 +405,7 @@ const fieldEditClose = document.querySelector<HTMLButtonElement>("#field-edit-cl
 const fieldEditTableId = document.querySelector<HTMLInputElement>("#field-edit-table-id");
 const fieldEditFieldId = document.querySelector<HTMLInputElement>("#field-edit-field-id");
 const fieldEditName = document.querySelector<HTMLInputElement>("#field-edit-name");
-const fieldEditType = document.querySelector<HTMLSelectElement>("#field-edit-type");
+const fieldEditTypeHost = document.querySelector<HTMLDivElement>("#field-edit-type");
 const fieldEditNullable = document.querySelector<HTMLInputElement>("#field-edit-nullable");
 const fieldEditPrimary = document.querySelector<HTMLInputElement>("#field-edit-primary");
 const fieldEditUnique = document.querySelector<HTMLInputElement>("#field-edit-unique");
@@ -431,7 +415,7 @@ const fieldEditEnumValuesLabel = document.querySelector<HTMLLabelElement>("#fiel
 const fieldEditEnumValuesTextarea = document.querySelector<HTMLTextAreaElement>("#field-edit-enum-values");
 const diagram = document.querySelector<HTMLDivElement>("#diagram");
 
-if (!tableForm || !fieldForm || !fieldNameInput || !fieldTypeSelect || !fieldNullableInput || !fieldPrimaryInput || !fieldUniqueInput || !fieldAutoincInput || !fieldIndexedInput || !fieldEnumValuesLabel || !fieldEnumValuesTextarea || !relationForm || !exportButton || !zoomOutButton || !zoomInButton || !fitButton || !zoomLabel || !projectSelect || !projectNewButton || !projectRenameButton || !projectDeleteButton || !projectExportJsonButton || !projectImportJsonButton || !projectImportJsonInput || !diagram || !mysqlButton || !sqlServerButton || !sqlModal || !sqlModalTitle || !sqlModalOutput || !sqlModalClose || !sqlModalCopy || !fieldEditModal || !fieldEditForm || !fieldEditClose || !fieldEditTableId || !fieldEditFieldId || !fieldEditName || !fieldEditType || !fieldEditNullable || !fieldEditPrimary || !fieldEditUnique || !fieldEditAutoinc || !fieldEditIndexed || !fieldEditEnumValuesLabel || !fieldEditEnumValuesTextarea) {
+if (!tableForm || !fieldForm || !fieldNameInput || !fieldTypeHost || !fieldNullableInput || !fieldPrimaryInput || !fieldUniqueInput || !fieldAutoincInput || !fieldIndexedInput || !fieldEnumValuesLabel || !fieldEnumValuesTextarea || !relationForm || !exportButton || !zoomOutButton || !zoomInButton || !fitButton || !zoomLabel || !projectSelectHost || !projectNewButton || !projectRenameButton || !projectDeleteButton || !projectExportJsonButton || !projectImportJsonButton || !projectImportJsonInput || !diagram || !mysqlButton || !postgresqlButton || !sqlServerButton || !sqlModal || !sqlModalTitle || !sqlModalOutput || !sqlModalClose || !sqlModalCopy || !fieldEditModal || !fieldEditForm || !fieldEditClose || !fieldEditTableId || !fieldEditFieldId || !fieldEditName || !fieldEditTypeHost || !fieldEditNullable || !fieldEditPrimary || !fieldEditUnique || !fieldEditAutoinc || !fieldEditIndexed || !fieldEditEnumValuesLabel || !fieldEditEnumValuesTextarea) {
   throw new Error("No se pudo inicializar la interfaz");
 }
 
@@ -443,14 +427,12 @@ const fieldEditModalElement = fieldEditModal;
 const fieldEditTableIdElement = fieldEditTableId;
 const fieldEditFieldIdElement = fieldEditFieldId;
 const fieldEditNameElement = fieldEditName;
-const fieldEditTypeElement = fieldEditType;
 const fieldEditNullableElement = fieldEditNullable;
 const fieldEditPrimaryElement = fieldEditPrimary;
 const fieldEditUniqueElement = fieldEditUnique;
 const fieldEditAutoincElement = fieldEditAutoinc;
 const fieldEditIndexedElement = fieldEditIndexed;
 const fieldEditEnumValuesTextareaElement = fieldEditEnumValuesTextarea;
-const projectSelectElement = projectSelect;
 const projectNewButtonElement = projectNewButton;
 const projectRenameButtonElement = projectRenameButton;
 const projectDeleteButtonElement = projectDeleteButton;
@@ -476,32 +458,87 @@ function createDefaultIdField(): Field {
   });
 }
 
-const sqlTypeMap: Record<SqlDialect, Record<DataType, string>> = {
-  mysql: {
-    id: "INT AUTO_INCREMENT",
-    uuid: "CHAR(36)",
-    integer: "INT",
-    float: "FLOAT",
-    double: "DOUBLE",
-    text: "VARCHAR(255)",
-    boolean: "TINYINT(1)",
-    date: "DATE",
-    timestamp: "TIMESTAMP",
-    enum: "ENUM('')",
-  },
-  sqlserver: {
-    id: "INT IDENTITY(1,1)",
-    uuid: "UNIQUEIDENTIFIER",
-    integer: "INT",
-    float: "REAL",
-    double: "FLOAT(53)",
-    text: "NVARCHAR(255)",
-    boolean: "BIT",
-    date: "DATE",
-    timestamp: "DATETIME2",
-    enum: "NVARCHAR(50) /* enum */",
-  },
-};
+const DATA_TYPE_SELECT_OPTIONS: SelectOption[] = DATA_TYPE_OPTIONS.map((option) => ({
+  value: option.value,
+  label: option.label,
+  group: option.group,
+}));
+
+const RELATION_KIND_OPTIONS: SelectOption[] = [
+  { value: "1:1", label: "1:1 (uno a uno)" },
+  { value: "1:N", label: "1:N (uno a muchos)" },
+  { value: "N:M", label: "N:M (muchos a muchos)" },
+];
+
+const fieldTableHost = document.querySelector<HTMLDivElement>("#field-table");
+const fromTableHost = document.querySelector<HTMLDivElement>("#from-table");
+const fromFieldHost = document.querySelector<HTMLDivElement>("#from-field");
+const toTableHost = document.querySelector<HTMLDivElement>("#to-table");
+const toFieldHost = document.querySelector<HTMLDivElement>("#to-field");
+const relationKindHost = document.querySelector<HTMLDivElement>("#relation-kind");
+
+if (!fieldTableHost || !fromTableHost || !fromFieldHost || !toTableHost || !toFieldHost || !relationKindHost) {
+  throw new Error("No se pudieron inicializar los selectores");
+}
+
+const projectSelect = mountSearchableSelect(projectSelectHost, {
+  name: "projectId",
+  placeholder: "Seleccionar proyecto...",
+  searchPlaceholder: "Buscar proyecto...",
+});
+const fieldTableSelect = mountSearchableSelect(fieldTableHost, {
+  name: "tableId",
+  required: true,
+  placeholder: "Seleccionar tabla...",
+  searchPlaceholder: "Buscar tabla...",
+});
+const fieldTypeSelect = mountSearchableSelect(fieldTypeHost, {
+  name: "fieldType",
+  required: true,
+  placeholder: "Seleccionar tipo...",
+  searchPlaceholder: "Buscar tipo de dato...",
+  initialOptions: DATA_TYPE_SELECT_OPTIONS,
+  initialValue: "text",
+});
+const fromTableSelect = mountSearchableSelect(fromTableHost, {
+  name: "fromTableId",
+  required: true,
+  placeholder: "Tabla origen...",
+  searchPlaceholder: "Buscar tabla origen...",
+});
+const fromFieldSelect = mountSearchableSelect(fromFieldHost, {
+  name: "fromFieldId",
+  required: true,
+  placeholder: "Campo origen...",
+  searchPlaceholder: "Buscar campo origen...",
+});
+const toTableSelect = mountSearchableSelect(toTableHost, {
+  name: "toTableId",
+  required: true,
+  placeholder: "Tabla destino...",
+  searchPlaceholder: "Buscar tabla destino...",
+});
+const toFieldSelect = mountSearchableSelect(toFieldHost, {
+  name: "toFieldId",
+  required: true,
+  placeholder: "Campo destino...",
+  searchPlaceholder: "Buscar campo destino...",
+});
+const relationKindSelect = mountSearchableSelect(relationKindHost, {
+  name: "relationKind",
+  required: true,
+  placeholder: "Tipo de relacion...",
+  searchPlaceholder: "Buscar tipo...",
+  initialOptions: RELATION_KIND_OPTIONS,
+  initialValue: "1:N",
+});
+const fieldEditTypeSelect = mountSearchableSelect(fieldEditTypeHost, {
+  required: true,
+  placeholder: "Seleccionar tipo...",
+  searchPlaceholder: "Buscar tipo de dato...",
+  initialOptions: DATA_TYPE_SELECT_OPTIONS,
+  initialValue: "text",
+});
 
 let dragState: { tableId: string; offsetX: number; offsetY: number } | null = null;
 let panState: { startX: number; startY: number; startScrollLeft: number; startScrollTop: number } | null = null;
@@ -535,40 +572,62 @@ function persistState() {
 
 function refreshProjectSelect() {
   const options = state.projects.map((project) => ({ value: project.id, label: project.name }));
-  buildOptionList(projectSelectElement, options);
-  projectSelectElement.value = state.activeProjectId;
+  projectSelect.setOptions(options);
+  projectSelect.setValue(state.activeProjectId);
 }
 
-function buildOptionList(select: HTMLSelectElement, options: Array<{ value: string; label: string }>) {
-  select.innerHTML = "";
-  options.forEach((option) => {
-    const item = document.createElement("option");
-    item.value = option.value;
-    item.textContent = option.label;
-    select.appendChild(item);
-  });
+function getFieldOptionsForTable(tableId: string): SelectOption[] {
+  const selectedTable = getTableById(tableId);
+  return selectedTable?.fields.map((field) => ({ value: field.id, label: `${field.name} (${fieldTypeLabel(field)})` })) ?? [];
 }
 
-function syncFieldSelector(tableSelector: string, fieldSelector: string) {
-  const tableSelect = document.querySelector<HTMLSelectElement>(tableSelector);
-  const fieldSelect = document.querySelector<HTMLSelectElement>(fieldSelector);
-  if (!tableSelect || !fieldSelect) return;
-  const selectedTable = getTableById(tableSelect.value);
-  const fieldOptions = selectedTable?.fields.map((field) => ({ value: field.id, label: `${field.name} (${fieldTypeLabel(field)})` })) ?? [];
-  buildOptionList(fieldSelect, fieldOptions);
+function syncFromFieldSelect(preserveValue = true) {
+  const previous = preserveValue ? fromFieldSelect.getValue() : "";
+  const options = getFieldOptionsForTable(fromTableSelect.getValue());
+  fromFieldSelect.setOptions(options);
+  if (previous && options.some((option) => option.value === previous)) {
+    fromFieldSelect.setValue(previous);
+  }
 }
 
-function refreshSelects() {
+function syncToFieldSelect(preserveValue = true) {
+  const previous = preserveValue ? toFieldSelect.getValue() : "";
+  const options = getFieldOptionsForTable(toTableSelect.getValue());
+  toFieldSelect.setOptions(options);
+  if (previous && options.some((option) => option.value === previous)) {
+    toFieldSelect.setValue(previous);
+  }
+}
+
+function refreshSelects(preserve: { fieldTable?: boolean; fromTable?: boolean; fromField?: boolean; toTable?: boolean; toField?: boolean; relationKind?: boolean } = {}) {
   const tableOptions = state.tables.map((table) => ({ value: table.id, label: table.name }));
-  const fieldTableSelect = document.querySelector<HTMLSelectElement>("#field-table");
-  const fromTableSelect = document.querySelector<HTMLSelectElement>("#from-table");
-  const toTableSelect = document.querySelector<HTMLSelectElement>("#to-table");
-  if (!fieldTableSelect || !fromTableSelect || !toTableSelect) return;
-  buildOptionList(fieldTableSelect, tableOptions);
-  buildOptionList(fromTableSelect, tableOptions);
-  buildOptionList(toTableSelect, tableOptions);
-  syncFieldSelector("#from-table", "#from-field");
-  syncFieldSelector("#to-table", "#to-field");
+
+  const fieldTableValue = preserve.fieldTable ? fieldTableSelect.getValue() : fieldTableSelect.getValue();
+  fieldTableSelect.setOptions(tableOptions);
+  if (fieldTableValue && tableOptions.some((option) => option.value === fieldTableValue)) {
+    fieldTableSelect.setValue(fieldTableValue);
+  }
+
+  const fromTableValue = preserve.fromTable ? fromTableSelect.getValue() : fromTableSelect.getValue();
+  const toTableValue = preserve.toTable ? toTableSelect.getValue() : toTableSelect.getValue();
+  fromTableSelect.setOptions(tableOptions);
+  toTableSelect.setOptions(tableOptions);
+  if (fromTableValue && tableOptions.some((option) => option.value === fromTableValue)) {
+    fromTableSelect.setValue(fromTableValue);
+  }
+  if (toTableValue && tableOptions.some((option) => option.value === toTableValue)) {
+    toTableSelect.setValue(toTableValue);
+  }
+
+  syncFromFieldSelect(preserve.fromField ?? true);
+  syncToFieldSelect(preserve.toField ?? true);
+
+  if (preserve.relationKind) {
+    const kind = relationKindSelect.getValue() || "1:N";
+    relationKindSelect.setValue(kind);
+  } else if (!relationKindSelect.getValue()) {
+    relationKindSelect.setValue("1:N");
+  }
 }
 
 function ensureTablePositions() {
@@ -584,7 +643,7 @@ function getFieldName(tableId: string, fieldId: string) {
 }
 
 function fieldTypeLabel(field: Field): string {
-  if (field.type !== "enum") return field.type;
+  if (field.type !== "enum") return dataTypeLabel(field.type);
   const values = field.enumValues?.filter((item) => item.length > 0) ?? [];
   if (values.length === 0) return "enum";
   const preview = values.slice(0, 3).join(", ");
@@ -674,6 +733,16 @@ function sqlEnumMysql(field: Field): string {
   return `ENUM(${values.map((value) => `'${escapeSqlStringLiteral(value)}'`).join(", ")})`;
 }
 
+function sqlEnumPostgresql(field: Field): string {
+  const values = field.enumValues?.filter((item) => item.length > 0) ?? [];
+  if (values.length === 0) {
+    return "TEXT /* enum */";
+  }
+  const col = quoteIdentifier(field.name, "postgresql");
+  const list = values.map((value) => `'${escapeSqlStringLiteral(value)}'`).join(", ");
+  return `TEXT CHECK (${col} IN (${list}))`;
+}
+
 function sqlEnumSqlServer(field: Field): string {
   const values = field.enumValues?.filter((item) => item.length > 0) ?? [];
   if (values.length === 0) {
@@ -685,21 +754,33 @@ function sqlEnumSqlServer(field: Field): string {
 }
 
 function mapFieldType(field: Field, dialect: SqlDialect) {
-  if (field.autoIncrement && (field.type === "integer" || field.type === "id")) {
-    return dialect === "mysql" ? "INT AUTO_INCREMENT" : "INT IDENTITY(1,1)";
+  if (field.autoIncrement && isIntegerLikeType(field.type)) {
+    if (dialect === "mysql") return field.type === "bigint" || field.type === "bigserial" ? "BIGINT AUTO_INCREMENT" : "INT AUTO_INCREMENT";
+    if (dialect === "postgresql") return field.type === "bigint" || field.type === "bigserial" ? "BIGSERIAL" : "SERIAL";
+    return field.type === "bigint" || field.type === "bigserial" ? "BIGINT IDENTITY(1,1)" : "INT IDENTITY(1,1)";
   }
   if (field.type === "enum") {
-    return dialect === "mysql" ? sqlEnumMysql(field) : sqlEnumSqlServer(field);
+    if (dialect === "mysql") return sqlEnumMysql(field);
+    if (dialect === "postgresql") return sqlEnumPostgresql(field);
+    return sqlEnumSqlServer(field);
   }
-  return sqlTypeMap[dialect][field.type];
+  return mapDataTypeToSql(field.type, dialect);
 }
 
 function quoteIdentifier(identifier: string, dialect: SqlDialect) {
-  return dialect === "mysql" ? `\`${identifier}\`` : `[${identifier}]`;
+  if (dialect === "mysql") return `\`${identifier}\``;
+  if (dialect === "postgresql") return `"${identifier.replace(/"/g, '""')}"`;
+  return `[${identifier}]`;
+}
+
+function sqlDialectLabel(dialect: SqlDialect) {
+  if (dialect === "mysql") return "MySQL";
+  if (dialect === "postgresql") return "PostgreSQL";
+  return "SQL Server";
 }
 
 function openSqlModal(dialect: SqlDialect, sql: string) {
-  sqlModalTitleElement.textContent = `SQL generado (${dialect === "mysql" ? "MySQL" : "SQL Server"})`;
+  sqlModalTitleElement.textContent = `SQL generado (${sqlDialectLabel(dialect)})`;
   sqlModalOutputElement.value = sql;
   sqlModalElement.classList.remove("hidden");
 }
@@ -711,7 +792,7 @@ function generateSql(dialect: SqlDialect) {
     const primaryKeys = table.fields.filter((field) => field.isPrimary).map((field) => quoteIdentifier(field.name, dialect));
     const uniqueFields = table.fields.filter((field) => field.isUnique && !field.isPrimary);
     const columnLines = table.fields.map((field) => {
-      const forceNotNull = field.type === "id" || field.autoIncrement;
+      const forceNotNull = isAutoIncrementType(field.type) || field.autoIncrement;
       const nullable = forceNotNull ? "NOT NULL" : field.nullable ? "NULL" : "NOT NULL";
       return `  ${quoteIdentifier(field.name, dialect)} ${mapFieldType(field, dialect)} ${nullable}`;
     });
@@ -740,6 +821,12 @@ function generateSql(dialect: SqlDialect) {
     if (columnLines.length > 0) {
       if (dialect === "mysql") {
         statements.push(`CREATE TABLE IF NOT EXISTS ${tableName} (\n${columnLines.join(",\n")}\n);`);
+      } else if (dialect === "postgresql") {
+        statements.push(`CREATE TABLE IF NOT EXISTS ${tableName} (\n${columnLines.join(",\n")}\n);`);
+        indexedFields.forEach((field) => {
+          const idxName = quoteIdentifier(`idx_${table.name}_${field.name}`, dialect);
+          statements.push(`CREATE INDEX IF NOT EXISTS ${idxName} ON ${tableName} (${quoteIdentifier(field.name, dialect)});`);
+        });
       } else {
         statements.push(
           `IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='${table.name}' AND xtype='U')\nBEGIN\nCREATE TABLE ${tableName} (\n${columnLines.join(",\n")}\n);\nEND;`,
@@ -959,7 +1046,7 @@ function openFieldEditModal(tableId: string, fieldId: string) {
   fieldEditTableIdElement.value = tableId;
   fieldEditFieldIdElement.value = fieldId;
   fieldEditNameElement.value = field.name;
-  fieldEditTypeElement.value = field.type;
+  fieldEditTypeSelect.setValue(field.type);
   fieldEditNullableElement.checked = field.nullable;
   fieldEditPrimaryElement.checked = field.isPrimary;
   fieldEditUniqueElement.checked = field.isUnique;
@@ -971,7 +1058,7 @@ function openFieldEditModal(tableId: string, fieldId: string) {
 }
 
 function applyFieldRules(field: Field, table: Table) {
-  if (field.type === "id") {
+  if (isAutoIncrementType(field.type)) {
     field.autoIncrement = true;
     field.isPrimary = true;
     field.isUnique = true;
@@ -990,7 +1077,7 @@ function applyFieldRules(field: Field, table: Table) {
 
   if (field.autoIncrement) {
     field.nullable = false;
-    if (field.type !== "integer" && field.type !== "id") {
+    if (!isIntegerLikeType(field.type)) {
       field.autoIncrement = false;
     }
   }
@@ -1013,6 +1100,82 @@ function relationStyle(kind: RelationKind) {
   if (kind === "1:1") return "rel-one-one";
   if (kind === "N:M") return "rel-many-many";
   return "rel-one-many";
+}
+
+interface FieldAnchor {
+  x: number;
+  y: number;
+  side: "left" | "right" | "top" | "bottom";
+}
+
+function chooseAnchors(fromTable: Table, fromFieldId: string, toTable: Table, toFieldId: string): { from: FieldAnchor; to: FieldAnchor } {
+  const fromFieldIndex = fromTable.fields.findIndex((field) => field.id === fromFieldId);
+  const toFieldIndex = toTable.fields.findIndex((field) => field.id === toFieldId);
+  const fromY = fromTable.y + TABLE_HEADER_HEIGHT + Math.max(0, fromFieldIndex) * TABLE_ROW_HEIGHT + TABLE_ROW_HEIGHT / 2;
+  const toY = toTable.y + TABLE_HEADER_HEIGHT + Math.max(0, toFieldIndex) * TABLE_ROW_HEIGHT + TABLE_ROW_HEIGHT / 2;
+  const fromCenterX = fromTable.x + getTableWidth(fromTable) / 2;
+  const toCenterX = toTable.x + getTableWidth(toTable) / 2;
+  const fromCenterY = fromTable.y + getTableHeight(fromTable) / 2;
+  const toCenterY = toTable.y + getTableHeight(toTable) / 2;
+  const deltaX = toCenterX - fromCenterX;
+  const deltaY = toCenterY - fromCenterY;
+
+  if (Math.abs(deltaX) >= Math.abs(deltaY)) {
+    if (deltaX >= 0) {
+      return {
+        from: { x: fromTable.x + getTableWidth(fromTable), y: fromY, side: "right" },
+        to: { x: toTable.x, y: toY, side: "left" },
+      };
+    }
+    return {
+      from: { x: fromTable.x, y: fromY, side: "left" },
+      to: { x: toTable.x + getTableWidth(toTable), y: toY, side: "right" },
+    };
+  }
+
+  if (deltaY >= 0) {
+    return {
+      from: { x: fromTable.x + getTableWidth(fromTable) / 2, y: fromTable.y + getTableHeight(fromTable), side: "bottom" },
+      to: { x: toTable.x + getTableWidth(toTable) / 2, y: toTable.y, side: "top" },
+    };
+  }
+  return {
+    from: { x: fromTable.x + getTableWidth(fromTable) / 2, y: fromTable.y, side: "top" },
+    to: { x: toTable.x + getTableWidth(toTable) / 2, y: toTable.y + getTableHeight(toTable), side: "bottom" },
+  };
+}
+
+function buildRelationPath(from: FieldAnchor, to: FieldAnchor, laneOffset: number): string {
+  const spread = 56 + laneOffset * 18;
+  const startX = (from.x + CANVAS_GUTTER) * state.zoom;
+  const startY = (from.y + CANVAS_GUTTER) * state.zoom;
+  const endX = (to.x + CANVAS_GUTTER) * state.zoom;
+  const endY = (to.y + CANVAS_GUTTER) * state.zoom;
+
+  if (from.side === "right" && to.side === "left") {
+    const controlX1 = startX + spread;
+    const controlX2 = endX - spread;
+    return `M ${startX} ${startY} C ${controlX1} ${startY}, ${controlX2} ${endY}, ${endX} ${endY}`;
+  }
+  if (from.side === "left" && to.side === "right") {
+    const controlX1 = startX - spread;
+    const controlX2 = endX + spread;
+    return `M ${startX} ${startY} C ${controlX1} ${startY}, ${controlX2} ${endY}, ${endX} ${endY}`;
+  }
+
+  const verticalSpread = 42 + laneOffset * 14;
+  if (from.side === "bottom" && to.side === "top") {
+    const controlY1 = startY + verticalSpread;
+    const controlY2 = endY - verticalSpread;
+    return `M ${startX} ${startY} C ${startX} ${controlY1}, ${endX} ${controlY2}, ${endX} ${endY}`;
+  }
+  const controlY1 = startY - verticalSpread;
+  const controlY2 = endY + verticalSpread;
+  return `M ${startX} ${startY} C ${startX} ${controlY1}, ${endX} ${controlY2}, ${endX} ${endY}`;
+}
+
+function relationLaneKey(relation: Relation) {
+  return `${relation.fromTableId}:${relation.fromFieldId}->${relation.toTableId}:${relation.toFieldId}`;
 }
 
 function editRelationKind(relationId: string) {
@@ -1050,45 +1213,49 @@ function renderDiagram() {
   ensureTablePositions();
   zoomLabelElement.textContent = `${Math.round(state.zoom * 100)}%`;
   const bounds = getCanvasBounds();
-  const anchors = new Map(state.tables.map((table) => [table.id, { x: table.x, y: table.y, width: getTableWidth(table), height: getTableHeight(table) }]));
-
+  const laneUsage = new Map<string, number>();
   const relationMarkup = state.relations
-    .map((relation) => {
-      const from = anchors.get(relation.fromTableId);
-      const to = anchors.get(relation.toTableId);
-      if (!from || !to) return "";
-      const startX = from.x + from.width;
-      const startY = from.y + from.height / 2;
-      const endX = to.x;
-      const endY = to.y + to.height / 2;
-      const controlX = (startX + endX) / 2;
-      const labelX = (startX + endX) / 2;
-      const labelY = (startY + endY) / 2;
+    .map((relation, index) => {
+      const fromTable = getTableById(relation.fromTableId);
+      const toTable = getTableById(relation.toTableId);
+      if (!fromTable || !toTable) return "";
+      const laneKey = relationLaneKey(relation);
+      const laneOffset = laneUsage.get(laneKey) ?? 0;
+      laneUsage.set(laneKey, laneOffset + 1);
+      const { from: fromAnchor, to: toAnchor } = chooseAnchors(fromTable, relation.fromFieldId, toTable, relation.toFieldId);
+      const path = buildRelationPath(fromAnchor, toAnchor, laneOffset);
+      const labelX = ((fromAnchor.x + toAnchor.x) / 2 + CANVAS_GUTTER) * state.zoom;
+      const labelY = ((fromAnchor.y + toAnchor.y) / 2 + CANVAS_GUTTER) * state.zoom + laneOffset * 10;
       const fromField = getFieldName(relation.fromTableId, relation.fromFieldId);
       const toField = getFieldName(relation.toTableId, relation.toFieldId);
-      const fromTableName = getTableById(relation.fromTableId)?.name ?? "from";
-      const toTableName = getTableById(relation.toTableId)?.name ?? "to";
+      const fromTableName = fromTable.name;
+      const toTableName = toTable.name;
       const relationLabel = relation.kind;
       const relationTooltip = `${fromTableName}.${fromField} -> ${toTableName}.${toField}`;
-      const labelWidth = 72;
+      const labelWidth = 88;
       const labelOffsetX = -labelWidth / 2;
-      const scaledLabelX = clamp((labelX + CANVAS_GUTTER) * state.zoom, labelWidth / 2 + 8, bounds.scaledWidth - labelWidth / 2 - 8);
-      const scaledLabelY = clamp((labelY + CANVAS_GUTTER) * state.zoom, 16, bounds.scaledHeight - 8);
+      const scaledLabelX = clamp(labelX, labelWidth / 2 + 8, bounds.scaledWidth - labelWidth / 2 - 8);
+      const scaledLabelY = clamp(labelY, 16, bounds.scaledHeight - 8);
       return `
-        <path class="relation-path ${relationStyle(relation.kind)}" data-relation-id="${relation.id}" d="M ${(startX + CANVAS_GUTTER) * state.zoom} ${(startY + CANVAS_GUTTER) * state.zoom} C ${(controlX + CANVAS_GUTTER) * state.zoom} ${(startY + CANVAS_GUTTER) * state.zoom}, ${(controlX + CANVAS_GUTTER) * state.zoom} ${(endY + CANVAS_GUTTER) * state.zoom}, ${(endX + CANVAS_GUTTER) * state.zoom} ${(endY + CANVAS_GUTTER) * state.zoom}" marker-end="url(#arrow-head)">
-          <title>${relationTooltip}</title>
-        </path>
-        <g class="relation-label" transform="translate(${scaledLabelX}, ${scaledLabelY})">
-          <rect x="${labelOffsetX}" y="-13" width="${labelWidth}" height="14" rx="5" class="relation-label-box"></rect>
-          <text x="-10" y="-6" text-anchor="middle" class="relation-label-text">${relationLabel}</text>
-          <g data-relation-id="${relation.id}" class="relation-label-edit">
-            <title>${relationTooltip} (clic para cambiar tipo)</title>
-            <rect x="${labelOffsetX}" y="-13" width="54" height="14" fill="transparent"></rect>
-          </g>
-          <g class="relation-delete-btn" data-action="delete-relation" data-relation-id="${relation.id}">
-            <title>Eliminar relacion</title>
-            <rect x="18" y="-13" width="18" height="14" rx="4" class="relation-delete-hit"></rect>
-            <text x="27" y="-6" text-anchor="middle" class="relation-delete-x">×</text>
+        <g class="relation-bundle" data-relation-id="${relation.id}" style="--relation-z:${20 + index}">
+          <path class="relation-path ${relationStyle(relation.kind)}" data-relation-id="${relation.id}" d="${path}" marker-end="url(#arrow-head)">
+            <title>${relationTooltip}</title>
+          </path>
+          <circle class="relation-anchor relation-anchor-from" cx="${(fromAnchor.x + CANVAS_GUTTER) * state.zoom}" cy="${(fromAnchor.y + CANVAS_GUTTER) * state.zoom}" r="4"></circle>
+          <circle class="relation-anchor relation-anchor-to" cx="${(toAnchor.x + CANVAS_GUTTER) * state.zoom}" cy="${(toAnchor.y + CANVAS_GUTTER) * state.zoom}" r="4"></circle>
+          <g class="relation-label" transform="translate(${scaledLabelX}, ${scaledLabelY})">
+            <rect x="${labelOffsetX}" y="-14" width="${labelWidth}" height="18" rx="6" class="relation-label-box"></rect>
+            <text x="0" y="-4" text-anchor="middle" class="relation-label-text">${relationLabel}</text>
+            <text x="0" y="6" text-anchor="middle" class="relation-label-subtext">${fromField} → ${toField}</text>
+            <g data-relation-id="${relation.id}" class="relation-label-edit">
+              <title>${relationTooltip} (clic para cambiar tipo)</title>
+              <rect x="${labelOffsetX}" y="-14" width="${labelWidth - 22}" height="18" fill="transparent"></rect>
+            </g>
+            <g class="relation-delete-btn" data-action="delete-relation" data-relation-id="${relation.id}">
+              <title>Eliminar relacion</title>
+              <rect x="${labelWidth / 2 - 18}" y="-14" width="18" height="18" rx="4" class="relation-delete-hit"></rect>
+              <text x="${labelWidth / 2 - 9}" y="-4" text-anchor="middle" class="relation-delete-x">×</text>
+            </g>
           </g>
         </g>
       `;
@@ -1128,6 +1295,7 @@ function renderDiagram() {
 
   diagramElement.innerHTML = `
     <div id="diagram-scene" class="diagram-scene" style="width:${bounds.scaledWidth}px;height:${bounds.scaledHeight}px">
+      <div class="table-layer">${tableMarkup}</div>
       <svg class="relation-layer" width="${bounds.scaledWidth}" height="${bounds.scaledHeight}">
         <defs>
           <marker id="arrow-head" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto">
@@ -1136,7 +1304,6 @@ function renderDiagram() {
         </defs>
         ${relationMarkup}
       </svg>
-      ${tableMarkup}
     </div>
   `;
 }
@@ -1218,15 +1385,15 @@ async function exportDiagramAsPng() {
 }
 
 function syncFieldEnumRowVisibility() {
-  if (!fieldTypeSelect || !fieldEnumValuesLabel || !fieldEnumValuesTextarea) return;
-  const isEnum = fieldTypeSelect.value === "enum";
+  if (!fieldEnumValuesLabel || !fieldEnumValuesTextarea) return;
+  const isEnum = fieldTypeSelect.getValue() === "enum";
   fieldEnumValuesLabel.hidden = !isEnum;
   fieldEnumValuesTextarea.hidden = !isEnum;
 }
 
 function syncFieldEditEnumRowVisibility() {
   if (!fieldEditEnumValuesLabel || !fieldEditEnumValuesTextarea) return;
-  const isEnum = fieldEditTypeElement.value === "enum";
+  const isEnum = fieldEditTypeSelect.getValue() === "enum";
   fieldEditEnumValuesLabel.hidden = !isEnum;
   fieldEditEnumValuesTextarea.hidden = !isEnum;
 }
@@ -1249,12 +1416,12 @@ tableForm.addEventListener("submit", (event) => {
   renderDiagram();
 });
 
-fieldTypeSelect.addEventListener("change", syncFieldEnumRowVisibility);
+fieldTypeSelect.onChange(syncFieldEnumRowVisibility);
 
 fieldForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const form = new FormData(fieldForm);
-  const selectedTableId = (form.get("tableId") as string) || "";
+  const selectedTableId = fieldTableSelect.getValue();
   const table = getTableById(selectedTableId);
   if (!table) return;
   const fieldName = safeName((form.get("fieldName") as string) || "");
@@ -1264,24 +1431,24 @@ fieldForm.addEventListener("submit", (event) => {
   const wantsUnique = form.get("isUnique") === "on";
   const wantsAutoIncrement = form.get("autoIncrement") === "on";
   const wantsIndexed = form.get("isIndexed") === "on";
-  const selectedType = ((form.get("fieldType") as DataType) || "text") as DataType;
+  const selectedType = normalizeDataType(fieldTypeSelect.getValue() || "text");
   const enumRaw = (form.get("enumValues") as string) || "";
   const parsedEnum = selectedType === "enum" ? parseEnumValuesInput(enumRaw) : undefined;
   const newField = normalizeField({
     id: generateId("fld"),
     name: fieldName,
     type: selectedType,
-    nullable: selectedType === "id" ? false : form.get("nullable") === "on",
-    isPrimary: selectedType === "id" ? true : hasPrimary ? false : wantsPrimary,
-    isUnique: wantsUnique || selectedType === "id",
-    autoIncrement: wantsAutoIncrement || selectedType === "id",
-    isIndexed: wantsIndexed || wantsUnique || selectedType === "id",
+    nullable: isAutoIncrementType(selectedType) ? false : form.get("nullable") === "on",
+    isPrimary: isAutoIncrementType(selectedType) ? true : hasPrimary ? false : wantsPrimary,
+    isUnique: wantsUnique || isAutoIncrementType(selectedType),
+    autoIncrement: wantsAutoIncrement || isAutoIncrementType(selectedType),
+    isIndexed: wantsIndexed || wantsUnique || isAutoIncrementType(selectedType),
     ...(parsedEnum !== undefined ? { enumValues: parsedEnum } : {}),
   });
   applyFieldRules(newField, table);
   table.fields.push(newField);
   persistState();
-  const keptType = fieldTypeSelect.value;
+  const keptType = fieldTypeSelect.getValue();
   const keptNullable = fieldNullableInput.checked;
   const keptPrimary = fieldPrimaryInput.checked;
   const keptUnique = fieldUniqueInput.checked;
@@ -1289,12 +1456,9 @@ fieldForm.addEventListener("submit", (event) => {
   const keptIndexed = fieldIndexedInput.checked;
   fieldNameInput.value = "";
   fieldEnumValuesTextarea.value = "";
-  refreshSelects();
-  if (selectedTableId) {
-    const tableSelect = fieldForm.querySelector<HTMLSelectElement>("#field-table");
-    if (tableSelect) tableSelect.value = selectedTableId;
-  }
-  fieldTypeSelect.value = keptType;
+  refreshSelects({ fieldTable: true });
+  if (selectedTableId) fieldTableSelect.setValue(selectedTableId);
+  fieldTypeSelect.setValue(keptType);
   fieldNullableInput.checked = keptNullable;
   fieldPrimaryInput.checked = keptPrimary;
   fieldUniqueInput.checked = keptUnique;
@@ -1305,26 +1469,28 @@ fieldForm.addEventListener("submit", (event) => {
   renderDiagram();
 });
 
-const fromTableSelect = document.querySelector<HTMLSelectElement>("#from-table");
-const toTableSelect = document.querySelector<HTMLSelectElement>("#to-table");
-fromTableSelect?.addEventListener("change", () => syncFieldSelector("#from-table", "#from-field"));
-toTableSelect?.addEventListener("change", () => syncFieldSelector("#to-table", "#to-field"));
+fromTableSelect.onChange(() => syncFromFieldSelect(false));
+toTableSelect.onChange(() => syncToFieldSelect(false));
 
 relationForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  const form = new FormData(relationForm);
-  const fromTableId = (form.get("fromTableId") as string) || "";
-  const toTableId = (form.get("toTableId") as string) || "";
-  const fromFieldId = (form.get("fromFieldId") as string) || "";
-  const toFieldId = (form.get("toFieldId") as string) || "";
-  const relationKind = ((form.get("relationKind") as RelationKind) || "1:N") as RelationKind;
+  const fromTableId = fromTableSelect.getValue();
+  const toTableId = toTableSelect.getValue();
+  const fromFieldId = fromFieldSelect.getValue();
+  const toFieldId = toFieldSelect.getValue();
+  const relationKind = (relationKindSelect.getValue() || "1:N") as RelationKind;
   if (!fromTableId || !toTableId || !fromFieldId || !toFieldId || fromTableId === toTableId) return;
   const relationId = `${fromTableId}_${fromFieldId}__${toTableId}_${toFieldId}`;
   if (state.relations.some((relation) => relation.id === relationId)) return;
   state.relations.push({ id: relationId, fromTableId, fromFieldId, toTableId, toFieldId, kind: relationKind });
   persistState();
-  relationForm.reset();
-  refreshSelects();
+  refreshSelects({
+    fromTable: true,
+    fromField: true,
+    toTable: true,
+    toField: true,
+    relationKind: true,
+  });
   renderDiagram();
 });
 
@@ -1443,9 +1609,10 @@ window.visualViewport?.addEventListener("resize", () => {
 
 exportButton.addEventListener("click", () => void exportDiagramAsPng());
 mysqlButton.addEventListener("click", () => generateSql("mysql"));
+postgresqlButton.addEventListener("click", () => generateSql("postgresql"));
 sqlServerButton.addEventListener("click", () => generateSql("sqlserver"));
-projectSelectElement.addEventListener("change", () => {
-  switchProject(projectSelectElement.value);
+projectSelect.onChange(() => {
+  switchProject(projectSelect.getValue());
 });
 projectNewButtonElement.addEventListener("click", createProject);
 projectRenameButtonElement.addEventListener("click", renameProject);
@@ -1480,9 +1647,9 @@ sqlModalElement.addEventListener("click", (event) => {
   }
 });
 
-fieldEditTypeElement.addEventListener("change", () => {
-  const selectedType = fieldEditTypeElement.value as DataType;
-  if (selectedType === "id") {
+fieldEditTypeSelect.onChange(() => {
+  const selectedType = normalizeDataType(fieldEditTypeSelect.getValue());
+  if (isAutoIncrementType(selectedType)) {
     fieldEditAutoincElement.checked = true;
     fieldEditPrimaryElement.checked = true;
     fieldEditUniqueElement.checked = true;
@@ -1495,8 +1662,9 @@ fieldEditTypeElement.addEventListener("change", () => {
 });
 
 fieldEditAutoincElement.addEventListener("change", () => {
-  if (fieldEditAutoincElement.checked && fieldEditTypeElement.value !== "integer" && fieldEditTypeElement.value !== "id") {
-    fieldEditTypeElement.value = "integer";
+  const currentType = normalizeDataType(fieldEditTypeSelect.getValue());
+  if (fieldEditAutoincElement.checked && !isIntegerLikeType(currentType)) {
+    fieldEditTypeSelect.setValue("integer");
   }
   if (fieldEditAutoincElement.checked) {
     fieldEditNullableElement.checked = false;
@@ -1521,7 +1689,7 @@ fieldEditForm.addEventListener("submit", (event) => {
   if (!newName) return;
 
   field.name = newName;
-  field.type = fieldEditTypeElement.value as DataType;
+  field.type = normalizeDataType(fieldEditTypeSelect.getValue());
   field.nullable = fieldEditNullableElement.checked;
   field.isPrimary = fieldEditPrimaryElement.checked;
   field.isUnique = fieldEditUniqueElement.checked;
