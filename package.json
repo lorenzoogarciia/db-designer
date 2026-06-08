@@ -9,11 +9,11 @@
     "preview": "vite preview"
   },
   "devDependencies": {
-    "@rolldown/binding-win32-x64-msvc": "^1.0.0-rc.16",
     "typescript": "~6.0.2",
     "vite": "^8.0.9"
   },
   "dependencies": {
+    "@rolldown/binding-darwin-arm64": "^1.1.0",
     "html2canvas": "^1.4.1"
   }
 }

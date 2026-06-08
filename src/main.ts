@@ -43,6 +43,14 @@ interface Project {
   zoom: number;
 }
 
+interface ExportedProject {
+  version: 1;
+  name: string;
+  tables: Table[];
+  relations: Relation[];
+  zoom: number;
+}
+
 const TABLE_MIN_WIDTH = 320;
 const TABLE_HEADER_HEIGHT = 58;
 const TABLE_ROW_HEIGHT = 34;
@@ -234,6 +242,11 @@ app.innerHTML = `
             <button id="project-new-btn" type="button">Nuevo</button>
             <button id="project-rename-btn" type="button">Renombrar</button>
           </div>
+          <div class="sql-actions">
+            <button id="project-export-json-btn" type="button">Exportar JSON</button>
+            <button id="project-import-json-btn" type="button">Importar JSON</button>
+          </div>
+          <input id="project-import-json-input" type="file" accept=".json,application/json" hidden />
           <button id="project-delete-btn" type="button" class="danger-btn">Eliminar proyecto</button>
         </div>
       </div>
@@ -392,6 +405,9 @@ const projectSelect = document.querySelector<HTMLSelectElement>("#project-select
 const projectNewButton = document.querySelector<HTMLButtonElement>("#project-new-btn");
 const projectRenameButton = document.querySelector<HTMLButtonElement>("#project-rename-btn");
 const projectDeleteButton = document.querySelector<HTMLButtonElement>("#project-delete-btn");
+const projectExportJsonButton = document.querySelector<HTMLButtonElement>("#project-export-json-btn");
+const projectImportJsonButton = document.querySelector<HTMLButtonElement>("#project-import-json-btn");
+const projectImportJsonInput = document.querySelector<HTMLInputElement>("#project-import-json-input");
 const mysqlButton = document.querySelector<HTMLButtonElement>("#sql-mysql-btn");
 const sqlServerButton = document.querySelector<HTMLButtonElement>("#sql-sqlserver-btn");
 const sqlModal = document.querySelector<HTMLDivElement>("#sql-modal");
@@ -415,7 +431,7 @@ const fieldEditEnumValuesLabel = document.querySelector<HTMLLabelElement>("#fiel
 const fieldEditEnumValuesTextarea = document.querySelector<HTMLTextAreaElement>("#field-edit-enum-values");
 const diagram = document.querySelector<HTMLDivElement>("#diagram");
 
-if (!tableForm || !fieldForm || !fieldNameInput || !fieldTypeSelect || !fieldNullableInput || !fieldPrimaryInput || !fieldUniqueInput || !fieldAutoincInput || !fieldIndexedInput || !fieldEnumValuesLabel || !fieldEnumValuesTextarea || !relationForm || !exportButton || !zoomOutButton || !zoomInButton || !fitButton || !zoomLabel || !projectSelect || !projectNewButton || !projectRenameButton || !projectDeleteButton || !diagram || !mysqlButton || !sqlServerButton || !sqlModal || !sqlModalTitle || !sqlModalOutput || !sqlModalClose || !sqlModalCopy || !fieldEditModal || !fieldEditForm || !fieldEditClose || !fieldEditTableId || !fieldEditFieldId || !fieldEditName || !fieldEditType || !fieldEditNullable || !fieldEditPrimary || !fieldEditUnique || !fieldEditAutoinc || !fieldEditIndexed || !fieldEditEnumValuesLabel || !fieldEditEnumValuesTextarea) {
+if (!tableForm || !fieldForm || !fieldNameInput || !fieldTypeSelect || !fieldNullableInput || !fieldPrimaryInput || !fieldUniqueInput || !fieldAutoincInput || !fieldIndexedInput || !fieldEnumValuesLabel || !fieldEnumValuesTextarea || !relationForm || !exportButton || !zoomOutButton || !zoomInButton || !fitButton || !zoomLabel || !projectSelect || !projectNewButton || !projectRenameButton || !projectDeleteButton || !projectExportJsonButton || !projectImportJsonButton || !projectImportJsonInput || !diagram || !mysqlButton || !sqlServerButton || !sqlModal || !sqlModalTitle || !sqlModalOutput || !sqlModalClose || !sqlModalCopy || !fieldEditModal || !fieldEditForm || !fieldEditClose || !fieldEditTableId || !fieldEditFieldId || !fieldEditName || !fieldEditType || !fieldEditNullable || !fieldEditPrimary || !fieldEditUnique || !fieldEditAutoinc || !fieldEditIndexed || !fieldEditEnumValuesLabel || !fieldEditEnumValuesTextarea) {
   throw new Error("No se pudo inicializar la interfaz");
 }
 
@@ -438,6 +454,9 @@ const projectSelectElement = projectSelect;
 const projectNewButtonElement = projectNewButton;
 const projectRenameButtonElement = projectRenameButton;
 const projectDeleteButtonElement = projectDeleteButton;
+const projectExportJsonButtonElement = projectExportJsonButton;
+const projectImportJsonButtonElement = projectImportJsonButton;
+const projectImportJsonInputElement = projectImportJsonInput;
 const zoomLabelElement = zoomLabel;
 const generateId = (prefix: string) => `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
 const safeName = (value: string) => value.trim().replace(/\s+/g, "_").toLowerCase();
@@ -815,6 +834,112 @@ function switchProject(projectId: string) {
   refreshProjectSelect();
   refreshSelects();
   renderDiagram();
+}
+
+function isValidTable(raw: unknown): raw is Table {
+  if (!raw || typeof raw !== "object") return false;
+  const table = raw as Table;
+  return (
+    typeof table.id === "string" &&
+    typeof table.name === "string" &&
+    Array.isArray(table.fields) &&
+    typeof table.x === "number" &&
+    typeof table.y === "number" &&
+    table.fields.every((field) => field && typeof field.id === "string" && typeof field.name === "string")
+  );
+}
+
+function parseImportedProject(raw: unknown): Omit<Project, "id"> | null {
+  if (!raw || typeof raw !== "object") return null;
+  const data = raw as Partial<ExportedProject> & { tables?: Table[]; relations?: Relation[]; zoom?: number; name?: string };
+
+  let name: string;
+  let tables: Table[];
+  let relations: Relation[];
+  let zoom: number;
+
+  if (typeof data.name === "string" && Array.isArray(data.tables)) {
+    name = data.name.trim();
+    tables = data.tables;
+    relations = Array.isArray(data.relations) ? data.relations : [];
+    zoom = typeof data.zoom === "number" ? data.zoom : 1;
+  } else if (Array.isArray(data.tables) && Array.isArray(data.relations)) {
+    name = "Proyecto importado";
+    tables = data.tables;
+    relations = data.relations;
+    zoom = typeof data.zoom === "number" ? data.zoom : 1;
+  } else {
+    return null;
+  }
+
+  if (!name || !tables.every(isValidTable)) return null;
+
+  return {
+    name,
+    tables: normalizeTables(tables),
+    relations,
+    zoom,
+  };
+}
+
+function exportProjectAsJson() {
+  syncActiveProjectFromState();
+  const project = getActiveProject();
+  const payload: ExportedProject = {
+    version: 1,
+    name: project.name,
+    tables: project.tables,
+    relations: project.relations,
+    zoom: project.zoom,
+  };
+  const json = JSON.stringify(payload, null, 2);
+  const blob = new Blob([json], { type: "application/json" });
+  const safeFilename = project.name.trim().replace(/[^\w\-.]+/g, "_") || "proyecto";
+  const link = document.createElement("a");
+  link.download = `${safeFilename}.json`;
+  const url = URL.createObjectURL(blob);
+  link.href = url;
+  safeDownloadLink(link);
+  window.setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+function importProjectFromJson(file: File) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const parsed = JSON.parse(String(reader.result)) as unknown;
+      const imported = parseImportedProject(parsed);
+      if (!imported) {
+        alert("El archivo JSON no tiene un formato de proyecto valido.");
+        return;
+      }
+
+      const existing = state.projects.find((project) => project.name === imported.name);
+      if (existing) {
+        existing.tables = imported.tables;
+        existing.relations = imported.relations;
+        existing.zoom = imported.zoom;
+        state.activeProjectId = existing.id;
+      } else {
+        const newProject: Project = {
+          id: generateId("prj"),
+          ...imported,
+        };
+        state.projects.push(newProject);
+        state.activeProjectId = newProject.id;
+      }
+
+      syncStateFromActiveProject();
+      persistState();
+      refreshProjectSelect();
+      refreshSelects();
+      renderDiagram();
+      alert(`Proyecto "${imported.name}" ${existing ? "actualizado" : "importado"} correctamente.`);
+    } catch {
+      alert("No se pudo leer el archivo JSON.");
+    }
+  };
+  reader.readAsText(file);
 }
 
 function removeField(tableId: string, fieldId: string) {
@@ -1325,6 +1450,16 @@ projectSelectElement.addEventListener("change", () => {
 projectNewButtonElement.addEventListener("click", createProject);
 projectRenameButtonElement.addEventListener("click", renameProject);
 projectDeleteButtonElement.addEventListener("click", deleteProject);
+projectExportJsonButtonElement.addEventListener("click", exportProjectAsJson);
+projectImportJsonButtonElement.addEventListener("click", () => {
+  projectImportJsonInputElement.click();
+});
+projectImportJsonInputElement.addEventListener("change", () => {
+  const file = projectImportJsonInputElement.files?.[0];
+  if (!file) return;
+  importProjectFromJson(file);
+  projectImportJsonInputElement.value = "";
+});
 
 sqlModalClose.addEventListener("click", () => {
   sqlModalElement.classList.add("hidden");
