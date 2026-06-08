@@ -10,6 +10,16 @@ import {
   type SqlDialect,
 } from "./data-types";
 import { mountSearchableSelect, type SelectOption } from "./searchable-select";
+import {
+  applyTheme,
+  getActiveTheme,
+  getExportBackgroundColor,
+  getStoredTheme,
+  themeToggleIcon,
+  themeToggleLabel,
+  toggleTheme,
+  type AppTheme,
+} from "./theme";
 import "./style.css";
 type RelationKind = "1:1" | "1:N" | "N:M";
 
@@ -236,9 +246,12 @@ if (!app) throw new Error("No se encontro #app");
 app.innerHTML = `
   <main class="layout">
     <section class="panel controls">
-      <header>
-        <h1>DB Designer</h1>
-        <p>Crea tablas, campos y relaciones con vista previa en vivo.</p>
+      <header class="app-header">
+        <div>
+          <h1>DB Designer</h1>
+          <p>Crea tablas, campos y relaciones con vista previa en vivo.</p>
+        </div>
+        <button id="theme-toggle-btn" type="button" class="theme-toggle-btn" aria-label="Cambiar tema"></button>
       </header>
 
       <div class="group">
@@ -319,6 +332,7 @@ app.innerHTML = `
       <div class="diagram-toolbar">
         <h2>Diagrama</h2>
         <div class="toolbar-actions">
+          <button id="theme-toggle-diagram-btn" type="button" class="theme-toggle-btn" aria-label="Cambiar tema"></button>
           <button id="zoom-out-btn" type="button">-</button>
           <span id="zoom-label">100%</span>
           <button id="zoom-in-btn" type="button">+</button>
@@ -379,6 +393,8 @@ const fieldIndexedInput = document.querySelector<HTMLInputElement>("#field-index
 const fieldEnumValuesLabel = document.querySelector<HTMLLabelElement>("#field-enum-values-label");
 const fieldEnumValuesTextarea = document.querySelector<HTMLTextAreaElement>("#field-enum-values");
 const relationForm = document.querySelector<HTMLFormElement>("#relation-form");
+const themeToggleButton = document.querySelector<HTMLButtonElement>("#theme-toggle-btn");
+const themeToggleDiagramButton = document.querySelector<HTMLButtonElement>("#theme-toggle-diagram-btn");
 const exportButton = document.querySelector<HTMLButtonElement>("#export-btn");
 const zoomOutButton = document.querySelector<HTMLButtonElement>("#zoom-out-btn");
 const zoomInButton = document.querySelector<HTMLButtonElement>("#zoom-in-btn");
@@ -415,7 +431,7 @@ const fieldEditEnumValuesLabel = document.querySelector<HTMLLabelElement>("#fiel
 const fieldEditEnumValuesTextarea = document.querySelector<HTMLTextAreaElement>("#field-edit-enum-values");
 const diagram = document.querySelector<HTMLDivElement>("#diagram");
 
-if (!tableForm || !fieldForm || !fieldNameInput || !fieldTypeHost || !fieldNullableInput || !fieldPrimaryInput || !fieldUniqueInput || !fieldAutoincInput || !fieldIndexedInput || !fieldEnumValuesLabel || !fieldEnumValuesTextarea || !relationForm || !exportButton || !zoomOutButton || !zoomInButton || !fitButton || !zoomLabel || !projectSelectHost || !projectNewButton || !projectRenameButton || !projectDeleteButton || !projectExportJsonButton || !projectImportJsonButton || !projectImportJsonInput || !diagram || !mysqlButton || !postgresqlButton || !sqlServerButton || !sqlModal || !sqlModalTitle || !sqlModalOutput || !sqlModalClose || !sqlModalCopy || !fieldEditModal || !fieldEditForm || !fieldEditClose || !fieldEditTableId || !fieldEditFieldId || !fieldEditName || !fieldEditTypeHost || !fieldEditNullable || !fieldEditPrimary || !fieldEditUnique || !fieldEditAutoinc || !fieldEditIndexed || !fieldEditEnumValuesLabel || !fieldEditEnumValuesTextarea) {
+if (!tableForm || !fieldForm || !fieldNameInput || !fieldTypeHost || !fieldNullableInput || !fieldPrimaryInput || !fieldUniqueInput || !fieldAutoincInput || !fieldIndexedInput || !fieldEnumValuesLabel || !fieldEnumValuesTextarea || !relationForm || !themeToggleButton || !themeToggleDiagramButton || !exportButton || !zoomOutButton || !zoomInButton || !fitButton || !zoomLabel || !projectSelectHost || !projectNewButton || !projectRenameButton || !projectDeleteButton || !projectExportJsonButton || !projectImportJsonButton || !projectImportJsonInput || !diagram || !mysqlButton || !postgresqlButton || !sqlServerButton || !sqlModal || !sqlModalTitle || !sqlModalOutput || !sqlModalClose || !sqlModalCopy || !fieldEditModal || !fieldEditForm || !fieldEditClose || !fieldEditTableId || !fieldEditFieldId || !fieldEditName || !fieldEditTypeHost || !fieldEditNullable || !fieldEditPrimary || !fieldEditUnique || !fieldEditAutoinc || !fieldEditIndexed || !fieldEditEnumValuesLabel || !fieldEditEnumValuesTextarea) {
   throw new Error("No se pudo inicializar la interfaz");
 }
 
@@ -440,6 +456,28 @@ const projectExportJsonButtonElement = projectExportJsonButton;
 const projectImportJsonButtonElement = projectImportJsonButton;
 const projectImportJsonInputElement = projectImportJsonInput;
 const zoomLabelElement = zoomLabel;
+const themeToggleButtonElement = themeToggleButton;
+const themeToggleDiagramButtonElement = themeToggleDiagramButton;
+
+function updateThemeToggleButtons(theme: AppTheme = getActiveTheme()) {
+  const label = themeToggleLabel(theme);
+  const icon = themeToggleIcon(theme);
+  themeToggleButtonElement.textContent = icon;
+  themeToggleButtonElement.title = label;
+  themeToggleButtonElement.setAttribute("aria-label", label);
+  themeToggleDiagramButtonElement.textContent = icon;
+  themeToggleDiagramButtonElement.title = label;
+  themeToggleDiagramButtonElement.setAttribute("aria-label", label);
+}
+
+function handleThemeToggle() {
+  const nextTheme = toggleTheme();
+  updateThemeToggleButtons(nextTheme);
+}
+
+applyTheme(getStoredTheme());
+updateThemeToggleButtons();
+
 const generateId = (prefix: string) => `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
 const safeName = (value: string) => value.trim().replace(/\s+/g, "_").toLowerCase();
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
@@ -1360,7 +1398,7 @@ async function exportDiagramAsPng() {
     for (const scale of attemptScales) {
       try {
         const canvas = await html2canvas(scene, {
-          backgroundColor: "#0b1220",
+          backgroundColor: getExportBackgroundColor(),
           scale,
           useCORS: true,
           allowTaint: true,
@@ -1607,6 +1645,8 @@ window.visualViewport?.addEventListener("resize", () => {
   renderDiagram();
 });
 
+themeToggleButtonElement.addEventListener("click", handleThemeToggle);
+themeToggleDiagramButtonElement.addEventListener("click", handleThemeToggle);
 exportButton.addEventListener("click", () => void exportDiagramAsPng());
 mysqlButton.addEventListener("click", () => generateSql("mysql"));
 postgresqlButton.addEventListener("click", () => generateSql("postgresql"));
