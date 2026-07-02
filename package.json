@@ -6,14 +6,23 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src",
+    "format": "prettier --write ."
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.9.4",
     "typescript": "~6.0.2",
-    "vite": "^8.0.9"
+    "typescript-eslint": "^8.62.1",
+    "vite": "^8.0.9",
+    "vitest": "^4.1.9"
   },
   "dependencies": {
-    "@rolldown/binding-darwin-arm64": "^1.1.0",
+    "@rolldown/binding-win32-x64-msvc": "^1.1.4",
     "html2canvas": "^1.4.1"
   }
 }
