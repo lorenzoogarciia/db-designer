@@ -46,6 +46,8 @@ export function mountAppShell(app: HTMLElement): void {
           <div id="field-type" class="searchable-select-host"></div>
           <label for="field-enum-values" id="field-enum-values-label" hidden>Valores enum (opcional)</label>
           <textarea id="field-enum-values" name="enumValues" rows="2" placeholder="Separados por coma o una por linea (ej: pending, active, done)" hidden></textarea>
+          <label for="field-default-value" id="field-default-value-label">Valor por defecto (opcional)</label>
+          <input id="field-default-value" name="defaultValue" placeholder="ej: 0, 'activo', CURRENT_TIMESTAMP, NULL" />
           <label class="checkbox-row"><input id="field-nullable" type="checkbox" name="nullable" /> Permite null</label>
           <label class="checkbox-row"><input id="field-primary" type="checkbox" name="isPrimary" /> Clave primaria</label>
           <label class="checkbox-row"><input id="field-unique" type="checkbox" name="isUnique" /> UNIQUE</label>
@@ -128,6 +130,8 @@ export function mountAppShell(app: HTMLElement): void {
         <div id="field-edit-type" class="searchable-select-host"></div>
         <label for="field-edit-enum-values" id="field-edit-enum-values-label" hidden>Valores enum (opcional)</label>
         <textarea id="field-edit-enum-values" rows="2" placeholder="Separados por coma o una por linea" hidden></textarea>
+        <label for="field-edit-default-value" id="field-edit-default-value-label">Valor por defecto (opcional)</label>
+        <input id="field-edit-default-value" placeholder="ej: 0, 'activo', CURRENT_TIMESTAMP, NULL" />
         <label class="checkbox-row"><input id="field-edit-nullable" type="checkbox" /> Permite null</label>
         <label class="checkbox-row"><input id="field-edit-primary" type="checkbox" /> Clave primaria</label>
         <label class="checkbox-row"><input id="field-edit-unique" type="checkbox" /> UNIQUE</label>

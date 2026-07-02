@@ -21,6 +21,38 @@ export function parseEnumValuesInput(raw: string): string[] {
   return dedupeEnumValues(parts);
 }
 
+export function normalizeDefaultValue(raw: string | undefined): string | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const trimmed = String(raw).trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/** Formatea el valor DEFAULT para DDL SQL. */
+export function formatDefaultForSql(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const upper = trimmed.toUpperCase();
+  if (upper === "NULL") return "NULL";
+  if (
+    /^(CURRENT_TIMESTAMP|CURRENT_DATE|CURRENT_TIME|LOCALTIME|LOCALTIMESTAMP|NOW\(\)|GETDATE\(\)|SYSDATETIME\(\)|SYSUTCDATETIME\(\)|UUID_GENERATE_V4\(\)|GEN_RANDOM_UUID\(\)|TRUE|FALSE)$/i.test(
+      trimmed,
+    )
+  ) {
+    return trimmed;
+  }
+  if (/^-?\d+(\.\d+)?$/.test(trimmed)) {
+    return trimmed;
+  }
+  if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
+    return trimmed;
+  }
+  if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+    const inner = trimmed.slice(1, -1).replace(/"/g, '""');
+    return `'${inner.replace(/'/g, "''")}'`;
+  }
+  return `'${trimmed.replace(/'/g, "''")}'`;
+}
+
 export function normalizeField(raw: Field): Field {
   const type = normalizeDataType(raw.type ?? "text");
   const autoIncrement = Boolean(raw.autoIncrement) || isAutoIncrementType(type);
@@ -29,6 +61,7 @@ export function normalizeField(raw: Field): Field {
     type === "enum"
       ? dedupeEnumValues(Array.isArray(raw.enumValues) ? raw.enumValues.map((item) => String(item).trim()).filter((item) => item.length > 0) : [])
       : undefined;
+  const defaultValue = autoIncrement || isAutoIncrementType(type) ? undefined : normalizeDefaultValue(raw.defaultValue);
   const base = {
     id: raw.id,
     name: raw.name,
@@ -38,6 +71,7 @@ export function normalizeField(raw: Field): Field {
     isUnique: Boolean(raw.isUnique) || isPrimary,
     autoIncrement,
     isIndexed: Boolean(raw.isIndexed) || Boolean(raw.isUnique) || isPrimary,
+    ...(defaultValue !== undefined ? { defaultValue } : {}),
   };
   if (type === "enum") {
     return { ...base, enumValues: enumValues ?? [] };
@@ -85,9 +119,14 @@ export function applyFieldRules(field: Field, table: Table): void {
 
   if (field.autoIncrement) {
     field.nullable = false;
+    delete field.defaultValue;
     if (!isIntegerLikeType(field.type)) {
       field.autoIncrement = false;
     }
+  }
+
+  if (isAutoIncrementType(field.type)) {
+    delete field.defaultValue;
   }
 
   if (field.isPrimary) {

@@ -20,6 +20,8 @@ export function wireFieldEditModal(store: Store, selects: SelectControllers): {
   const fieldEditIndexed = document.querySelector<HTMLInputElement>("#field-edit-indexed");
   const fieldEditEnumValuesLabel = document.querySelector<HTMLLabelElement>("#field-edit-enum-values-label");
   const fieldEditEnumValuesTextarea = document.querySelector<HTMLTextAreaElement>("#field-edit-enum-values");
+  const fieldEditDefaultValueLabel = document.querySelector<HTMLLabelElement>("#field-edit-default-value-label");
+  const fieldEditDefaultValueInput = document.querySelector<HTMLInputElement>("#field-edit-default-value");
 
   if (
     !fieldEditModal ||
@@ -34,7 +36,9 @@ export function wireFieldEditModal(store: Store, selects: SelectControllers): {
     !fieldEditAutoinc ||
     !fieldEditIndexed ||
     !fieldEditEnumValuesLabel ||
-    !fieldEditEnumValuesTextarea
+    !fieldEditEnumValuesTextarea ||
+    !fieldEditDefaultValueLabel ||
+    !fieldEditDefaultValueInput
   ) {
     throw new Error("No se encontraron elementos del modal de edicion de campo");
   }
@@ -51,11 +55,26 @@ export function wireFieldEditModal(store: Store, selects: SelectControllers): {
   const indexedInput = fieldEditIndexed;
   const enumLabel = fieldEditEnumValuesLabel;
   const enumTextarea = fieldEditEnumValuesTextarea;
+  const defaultLabel = fieldEditDefaultValueLabel;
+  const defaultInput = fieldEditDefaultValueInput;
+
+  function syncFieldEditDefaultRowVisibility() {
+    const selectedType = normalizeDataType(selects.fieldEditTypeSelect.getValue());
+    const hideDefault = isAutoIncrementType(selectedType) || autoincInput.checked;
+    defaultLabel.hidden = hideDefault;
+    defaultInput.hidden = hideDefault;
+    if (hideDefault) defaultInput.value = "";
+  }
 
   function syncFieldEditEnumRowVisibility() {
     const isEnum = selects.fieldEditTypeSelect.getValue() === "enum";
     enumLabel.hidden = !isEnum;
     enumTextarea.hidden = !isEnum;
+  }
+
+  function syncFieldEditRows() {
+    syncFieldEditEnumRowVisibility();
+    syncFieldEditDefaultRowVisibility();
   }
 
   function openFieldEditModal(tableId: string, fieldId: string) {
@@ -73,7 +92,8 @@ export function wireFieldEditModal(store: Store, selects: SelectControllers): {
     autoincInput.checked = field.autoIncrement;
     indexedInput.checked = field.isIndexed;
     enumTextarea.value = field.enumValues?.length ? field.enumValues.join(", ") : "";
-    syncFieldEditEnumRowVisibility();
+    defaultInput.value = field.defaultValue ?? "";
+    syncFieldEditRows();
     modal.classList.remove("hidden");
   }
 
@@ -88,7 +108,7 @@ export function wireFieldEditModal(store: Store, selects: SelectControllers): {
     if (selectedType === "enum") {
       autoincInput.checked = false;
     }
-    syncFieldEditEnumRowVisibility();
+    syncFieldEditRows();
   });
 
   autoincInput.addEventListener("change", () => {
@@ -99,7 +119,7 @@ export function wireFieldEditModal(store: Store, selects: SelectControllers): {
     if (autoincInput.checked) {
       nullableInput.checked = false;
     }
-    syncFieldEditEnumRowVisibility();
+    syncFieldEditRows();
   });
 
   primaryInput.addEventListener("change", () => {
@@ -134,6 +154,7 @@ export function wireFieldEditModal(store: Store, selects: SelectControllers): {
         normalizeDataType(selects.fieldEditTypeSelect.getValue()) === "enum"
           ? parseEnumValuesInput(enumTextarea.value)
           : undefined,
+      ...(defaultInput.value.trim() ? { defaultValue: defaultInput.value } : {}),
     });
 
     store.dispatch({ type: "UPDATE_FIELD", tableId, fieldId, updates });

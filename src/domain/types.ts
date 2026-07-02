@@ -13,6 +13,8 @@ export interface Field {
   isUnique: boolean;
   autoIncrement: boolean;
   isIndexed: boolean;
+  /** Valor DEFAULT en SQL (literal o expresion, ej: 0, 'activo', CURRENT_TIMESTAMP). */
+  defaultValue?: string;
   /** Solo aplica cuando `type` es `enum`; orden conservado, sin duplicados. */
   enumValues?: string[];
 }

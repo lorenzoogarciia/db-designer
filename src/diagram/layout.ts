@@ -20,7 +20,10 @@ export function fieldTypeLabel(field: Field): string {
 }
 
 export function getFieldMetaLabel(field: Field): string {
-  return `${fieldTypeLabel(field)}${field.nullable ? "?" : ""}${field.isPrimary ? " | PK" : ""}${field.isUnique && !field.isPrimary ? " | UQ" : ""}${field.autoIncrement ? " | AI" : ""}${field.isIndexed && !field.isPrimary && !field.isUnique ? " | IDX" : ""}`;
+  const defaultSuffix = field.defaultValue
+    ? ` | DEF ${field.defaultValue.length > 14 ? `${field.defaultValue.slice(0, 14)}…` : field.defaultValue}`
+    : "";
+  return `${fieldTypeLabel(field)}${field.nullable ? "?" : ""}${field.isPrimary ? " | PK" : ""}${field.isUnique && !field.isPrimary ? " | UQ" : ""}${field.autoIncrement ? " | AI" : ""}${field.isIndexed && !field.isPrimary && !field.isUnique ? " | IDX" : ""}${defaultSuffix}`;
 }
 
 export function estimateTableWidth(table: Table): number {

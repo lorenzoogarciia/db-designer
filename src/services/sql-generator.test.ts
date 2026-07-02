@@ -75,12 +75,6 @@ describe("generateSql", () => {
     expect(sql).toContain('CREATE INDEX IF NOT EXISTS "idx_users_email"');
   });
 
-  it("generates sql server ddl with identity", () => {
-    const sql = generateSql(project, "sqlserver");
-    expect(sql).toContain("CREATE TABLE [users]");
-    expect(sql).toContain("IDENTITY(1,1)");
-  });
-
   it("includes on delete and on update in foreign keys", () => {
     const withFk = {
       tables: [
@@ -136,5 +130,40 @@ describe("generateSql", () => {
     };
     const sql = generateSql(withFk, "postgresql");
     expect(sql).toContain('REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE RESTRICT');
+  });
+
+  it("generates sql server ddl with identity", () => {
+    const sql = generateSql(project, "sqlserver");
+    expect(sql).toContain("CREATE TABLE [users]");
+    expect(sql).toContain("IDENTITY(1,1)");
+  });
+
+  it("includes column default values", () => {
+    const withDefault = {
+      tables: [
+        {
+          id: "t1",
+          name: "posts",
+          x: 0,
+          y: 0,
+          fields: [
+            {
+              id: "f1",
+              name: "title",
+              type: "text",
+              nullable: true,
+              isPrimary: false,
+              isUnique: false,
+              autoIncrement: false,
+              isIndexed: false,
+              defaultValue: "sin_titulo",
+            },
+          ],
+        },
+      ],
+      relations: [],
+    };
+    const sql = generateSql(withDefault, "mysql");
+    expect(sql).toContain("`title` TEXT NULL DEFAULT 'sin_titulo'");
   });
 });

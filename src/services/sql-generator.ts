@@ -1,3 +1,4 @@
+import { formatDefaultForSql } from "../domain/field.ts";
 import { isAutoIncrementType, isIntegerLikeType, mapDataTypeToSql, type SqlDialect } from "../lib/data-types.ts";
 import type { Field, Project, Relation, Table } from "../domain/types.ts";
 import { formatFkReferentialActions } from "../domain/relation.ts";
@@ -79,7 +80,8 @@ export function generateSql(project: Pick<Project, "tables" | "relations">, dial
     const columnLines = table.fields.map((field) => {
       const forceNotNull = isAutoIncrementType(field.type) || field.autoIncrement;
       const nullable = forceNotNull ? "NOT NULL" : field.nullable ? "NULL" : "NOT NULL";
-      return `  ${quoteIdentifier(field.name, dialect)} ${mapFieldType(field, dialect)} ${nullable}`;
+      const defaultClause = field.defaultValue ? ` DEFAULT ${formatDefaultForSql(field.defaultValue)}` : "";
+      return `  ${quoteIdentifier(field.name, dialect)} ${mapFieldType(field, dialect)} ${nullable}${defaultClause}`;
     });
     const relationConstraints = relations
       .filter((relation: Relation) => relation.fromTableId === table.id)

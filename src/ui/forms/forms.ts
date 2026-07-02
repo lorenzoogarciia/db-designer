@@ -31,6 +31,8 @@ export function wireFieldForm(store: Store, selects: SelectControllers): void {
   const fieldIndexedInput = document.querySelector<HTMLInputElement>("#field-indexed");
   const fieldEnumValuesLabel = document.querySelector<HTMLLabelElement>("#field-enum-values-label");
   const fieldEnumValuesTextarea = document.querySelector<HTMLTextAreaElement>("#field-enum-values");
+  const fieldDefaultValueLabel = document.querySelector<HTMLLabelElement>("#field-default-value-label");
+  const fieldDefaultValueInput = document.querySelector<HTMLInputElement>("#field-default-value");
 
   if (
     !fieldForm ||
@@ -41,13 +43,27 @@ export function wireFieldForm(store: Store, selects: SelectControllers): void {
     !fieldAutoincInput ||
     !fieldIndexedInput ||
     !fieldEnumValuesLabel ||
-    !fieldEnumValuesTextarea
+    !fieldEnumValuesTextarea ||
+    !fieldDefaultValueLabel ||
+    !fieldDefaultValueInput
   ) {
     throw new Error("No se encontraron elementos del formulario de campo");
   }
 
   const enumLabel = fieldEnumValuesLabel;
   const enumTextarea = fieldEnumValuesTextarea;
+  const defaultLabel = fieldDefaultValueLabel;
+  const defaultInput = fieldDefaultValueInput;
+
+  const autoincInput = fieldAutoincInput;
+
+  function syncFieldDefaultRowVisibility() {
+    const isAutoIncType = isAutoIncrementType(normalizeDataType(selects.fieldTypeSelect.getValue() || "text"));
+    const hideDefault = isAutoIncType || autoincInput.checked;
+    defaultLabel.hidden = hideDefault;
+    defaultInput.hidden = hideDefault;
+    if (hideDefault) defaultInput.value = "";
+  }
 
   function syncFieldEnumRowVisibility() {
     const isEnum = selects.fieldTypeSelect.getValue() === "enum";
@@ -55,7 +71,13 @@ export function wireFieldForm(store: Store, selects: SelectControllers): void {
     enumTextarea.hidden = !isEnum;
   }
 
-  selects.fieldTypeSelect.onChange(syncFieldEnumRowVisibility);
+  function syncFieldFormRows() {
+    syncFieldEnumRowVisibility();
+    syncFieldDefaultRowVisibility();
+  }
+
+  selects.fieldTypeSelect.onChange(syncFieldFormRows);
+  autoincInput.addEventListener("change", syncFieldDefaultRowVisibility);
 
   fieldForm.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -73,6 +95,7 @@ export function wireFieldForm(store: Store, selects: SelectControllers): void {
     const wantsIndexed = form.get("isIndexed") === "on";
     const selectedType = normalizeDataType(selects.fieldTypeSelect.getValue() || "text");
     const enumRaw = (form.get("enumValues") as string) || "";
+    const defaultRaw = (form.get("defaultValue") as string) || "";
     const parsedEnum = selectedType === "enum" ? parseEnumValuesInput(enumRaw) : undefined;
     const newField = normalizeField({
       id: generateId("fld"),
@@ -84,6 +107,7 @@ export function wireFieldForm(store: Store, selects: SelectControllers): void {
       autoIncrement: wantsAutoIncrement || isAutoIncrementType(selectedType),
       isIndexed: wantsIndexed || wantsUnique || isAutoIncrementType(selectedType),
       ...(parsedEnum !== undefined ? { enumValues: parsedEnum } : {}),
+      ...(defaultRaw.trim() ? { defaultValue: defaultRaw } : {}),
     });
     store.dispatch({ type: "ADD_FIELD", tableId: selectedTableId, field: newField });
 
@@ -91,10 +115,12 @@ export function wireFieldForm(store: Store, selects: SelectControllers): void {
     const keptNullable = fieldNullableInput.checked;
     const keptPrimary = fieldPrimaryInput.checked;
     const keptUnique = fieldUniqueInput.checked;
-    const keptAutoinc = fieldAutoincInput.checked;
+    const keptAutoinc = autoincInput.checked;
     const keptIndexed = fieldIndexedInput.checked;
+    const keptDefault = defaultInput.value;
     fieldNameInput.value = "";
     enumTextarea.value = "";
+    defaultInput.value = "";
     selects.refreshSelects({ fieldTable: true });
     if (selectedTableId) selects.fieldTableSelect.setValue(selectedTableId);
     selects.fieldTypeSelect.setValue(keptType);
@@ -103,11 +129,12 @@ export function wireFieldForm(store: Store, selects: SelectControllers): void {
     fieldUniqueInput.checked = keptUnique;
     fieldAutoincInput.checked = keptAutoinc;
     fieldIndexedInput.checked = keptIndexed;
-    syncFieldEnumRowVisibility();
+    defaultInput.value = keptDefault;
+    syncFieldFormRows();
     fieldNameInput.focus();
   });
 
-  syncFieldEnumRowVisibility();
+  syncFieldFormRows();
 }
 
 export function wireRelationForm(store: Store, selects: SelectControllers): void {

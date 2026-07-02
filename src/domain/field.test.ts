@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyFieldRules, normalizeField, parseEnumValuesInput } from "../domain/field.ts";
+import { applyFieldRules, formatDefaultForSql, normalizeField, parseEnumValuesInput } from "../domain/field.ts";
 
 describe("normalizeField", () => {
   it("forces autoincrement types to be primary and not nullable", () => {
@@ -33,6 +33,46 @@ describe("normalizeField", () => {
       enumValues: ["x", "x", "y"],
     });
     expect(field.enumValues).toEqual(["x", "y"]);
+  });
+
+  it("preserves default value when allowed", () => {
+    const field = normalizeField({
+      id: "f1",
+      name: "status",
+      type: "text",
+      nullable: true,
+      isPrimary: false,
+      isUnique: false,
+      autoIncrement: false,
+      isIndexed: false,
+      defaultValue: "activo",
+    });
+    expect(field.defaultValue).toBe("activo");
+  });
+
+  it("strips default on autoincrement fields", () => {
+    const field = normalizeField({
+      id: "f1",
+      name: "id",
+      type: "integer",
+      nullable: false,
+      isPrimary: true,
+      isUnique: true,
+      autoIncrement: true,
+      isIndexed: true,
+      defaultValue: "0",
+    });
+    expect(field.defaultValue).toBeUndefined();
+  });
+});
+
+describe("formatDefaultForSql", () => {
+  it("formats literals and expressions", () => {
+    expect(formatDefaultForSql("0")).toBe("0");
+    expect(formatDefaultForSql("activo")).toBe("'activo'");
+    expect(formatDefaultForSql("'activo'")).toBe("'activo'");
+    expect(formatDefaultForSql("CURRENT_TIMESTAMP")).toBe("CURRENT_TIMESTAMP");
+    expect(formatDefaultForSql("NULL")).toBe("NULL");
   });
 });
 
