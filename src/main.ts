@@ -5,6 +5,7 @@ import { exportDiagramAsPng } from "./services/png-export.ts";
 import { createStore } from "./state/store.ts";
 import { wireTableForm, wireFieldForm, wireRelationForm } from "./ui/forms/forms.ts";
 import { wireFieldEditModal } from "./ui/modals/field-edit-modal.ts";
+import { wireRelationEditModal } from "./ui/modals/relation-edit-modal.ts";
 import { wireSqlModal } from "./ui/modals/sql-modal.ts";
 import { wireProjectPanel } from "./ui/project-panel.ts";
 import { createSelectControllers } from "./ui/selects.ts";
@@ -42,6 +43,7 @@ if (!diagramElement || !zoomLabel || !zoomOutButton || !zoomInButton || !fitButt
 
 const diagram = createDiagramController(store, diagramElement, zoomLabel);
 const { openFieldEditModal } = wireFieldEditModal(store, selects);
+const { openRelationEditModal } = wireRelationEditModal(store);
 
 wireThemeToggles();
 wireProjectPanel(store, selects);
@@ -49,7 +51,10 @@ wireTableForm(store);
 wireFieldForm(store, selects);
 wireRelationForm(store, selects);
 wireSqlModal(store);
-wireCanvasInteractions(store, diagram, { onEditField: openFieldEditModal });
+wireCanvasInteractions(store, diagram, {
+  onEditField: openFieldEditModal,
+  onEditRelation: openRelationEditModal,
+});
 
 zoomOutButton.addEventListener("click", () => diagram.setZoom(store.getState().zoom - 0.1));
 zoomInButton.addEventListener("click", () => diagram.setZoom(store.getState().zoom + 0.1));

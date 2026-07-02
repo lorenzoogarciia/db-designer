@@ -2,7 +2,7 @@ import { isAutoIncrementType, normalizeDataType } from "../../lib/data-types.ts"
 import { normalizeField, parseEnumValuesInput } from "../../domain/field.ts";
 import { generateId } from "../../domain/ids.ts";
 import type { FkReferentialAction, RelationKind } from "../../domain/types.ts";
-import { isFkReferentialAction } from "../../domain/relation.ts";
+import { buildRelationId, isFkReferentialAction } from "../../domain/relation.ts";
 import type { Store } from "../../state/store.ts";
 import { getTableById, safeName } from "../../state/store.ts";
 import type { SelectControllers } from "../selects.ts";
@@ -153,7 +153,7 @@ export function wireRelationForm(store: Store, selects: SelectControllers): void
     const onDelete: FkReferentialAction = isFkReferentialAction(onDeleteRaw) ? onDeleteRaw : "NO ACTION";
     const onUpdate: FkReferentialAction = isFkReferentialAction(onUpdateRaw) ? onUpdateRaw : "NO ACTION";
     if (!fromTableId || !toTableId || !fromFieldId || !toFieldId || fromTableId === toTableId) return;
-    const relationId = `${fromTableId}_${fromFieldId}__${toTableId}_${toFieldId}`;
+    const relationId = buildRelationId(fromTableId, fromFieldId, toTableId, toFieldId);
     store.dispatch({
       type: "ADD_RELATION",
       relation: { id: relationId, fromTableId, fromFieldId, toTableId, toFieldId, kind: relationKind, onDelete, onUpdate },

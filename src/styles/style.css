@@ -677,6 +677,17 @@ button[type="submit"]:not(.neutral-btn):not(.danger-btn):hover,
   height: auto;
 }
 
+.relation-edit-card {
+  width: min(600px, 96vw);
+  height: auto;
+}
+
+.relation-edit-actions {
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .modal-header {
   display: flex;
   justify-content: space-between;

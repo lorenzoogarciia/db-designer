@@ -17,6 +17,15 @@ export function isFkReferentialAction(value: string): value is FkReferentialActi
   return FK_REFERENTIAL_ACTIONS.includes(value as FkReferentialAction);
 }
 
+export function buildRelationId(
+  fromTableId: string,
+  fromFieldId: string,
+  toTableId: string,
+  toFieldId: string,
+): string {
+  return `${fromTableId}_${fromFieldId}__${toTableId}_${toFieldId}`;
+}
+
 export function normalizeRelation(raw: RelationInput): Relation {
   const onDelete = raw.onDelete && isFkReferentialAction(raw.onDelete) ? raw.onDelete : DEFAULT_ON_DELETE;
   const onUpdate = raw.onUpdate && isFkReferentialAction(raw.onUpdate) ? raw.onUpdate : DEFAULT_ON_UPDATE;

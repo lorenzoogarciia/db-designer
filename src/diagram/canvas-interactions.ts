@@ -20,7 +20,10 @@ interface PanState {
 export function wireCanvasInteractions(
   store: Store,
   diagram: DiagramController,
-  handlers: { onEditField: (tableId: string, fieldId: string) => void },
+  handlers: {
+    onEditField: (tableId: string, fieldId: string) => void;
+    onEditRelation: (relationId: string) => void;
+  },
 ): void {
   const diagramElement = diagram.getDiagramElement();
   let dragState: DragState | null = null;
@@ -48,17 +51,7 @@ export function wireCanvasInteractions(
     if (relationNode && !deleteRelationEl && !(event.target as Element).closest("[data-action='delete-relation']")) {
       const relationId = relationNode.getAttribute("data-relation-id");
       if (relationId) {
-        const relation = store.getState().relations.find((r) => r.id === relationId);
-        if (!relation) return;
-        const input = window.prompt("Tipo de relacion (1:1, 1:N, N:M)", relation.kind);
-        if (input === null) return;
-        const normalized = input.trim() as "1:1" | "1:N" | "N:M";
-        const allowed = ["1:1", "1:N", "N:M"] as const;
-        if (!allowed.includes(normalized)) {
-          alert("Tipo no valido. Usa 1:1, 1:N o N:M.");
-          return;
-        }
-        store.dispatch({ type: "UPDATE_RELATION_KIND", relationId, kind: normalized });
+        handlers.onEditRelation(relationId);
         return;
       }
     }

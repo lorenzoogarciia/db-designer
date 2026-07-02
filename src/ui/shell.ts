@@ -141,5 +141,34 @@ export function mountAppShell(app: HTMLElement): void {
       </form>
     </div>
   </div>
+  <div id="relation-edit-modal" class="modal hidden">
+    <div class="modal-card relation-edit-card">
+      <div class="modal-header">
+        <h3 id="relation-edit-title">Editar relacion</h3>
+        <button id="relation-edit-close" type="button">Cerrar</button>
+      </div>
+      <form id="relation-edit-form" class="form-grid">
+        <input id="relation-edit-relation-id" type="hidden" />
+        <label for="relation-edit-from-table">Desde tabla</label>
+        <div id="relation-edit-from-table" class="searchable-select-host"></div>
+        <label for="relation-edit-from-field">Desde campo</label>
+        <div id="relation-edit-from-field" class="searchable-select-host"></div>
+        <label for="relation-edit-to-table">Hacia tabla</label>
+        <div id="relation-edit-to-table" class="searchable-select-host"></div>
+        <label for="relation-edit-to-field">Hacia campo</label>
+        <div id="relation-edit-to-field" class="searchable-select-host"></div>
+        <label for="relation-edit-kind">Tipo de relacion</label>
+        <div id="relation-edit-kind" class="searchable-select-host"></div>
+        <label for="relation-edit-on-delete">ON DELETE</label>
+        <div id="relation-edit-on-delete" class="searchable-select-host"></div>
+        <label for="relation-edit-on-update">ON UPDATE</label>
+        <div id="relation-edit-on-update" class="searchable-select-host"></div>
+        <div class="modal-actions relation-edit-actions">
+          <button id="relation-edit-delete" type="button" class="danger-btn">Eliminar relacion</button>
+          <button type="submit">Guardar cambios</button>
+        </div>
+      </form>
+    </div>
+  </div>
 `;
 }

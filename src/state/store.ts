@@ -1,5 +1,5 @@
 import { applyFieldRules, createDefaultIdField, normalizeField } from "../domain/field.ts";
-import { normalizeRelation, type RelationInput } from "../domain/relation.ts";
+import { buildRelationId, normalizeRelation, type RelationInput } from "../domain/relation.ts";
 import { clamp, generateId, safeName } from "../domain/ids.ts";
 import type { AppState, Field, Project, RelationKind, Table } from "../domain/types.ts";
 
@@ -43,6 +43,7 @@ export type Action =
   | { type: "ADD_RELATION"; relation: RelationInput }
   | { type: "REMOVE_RELATION"; relationId: string }
   | { type: "UPDATE_RELATION_KIND"; relationId: string; kind: RelationKind }
+  | { type: "UPDATE_RELATION"; relationId: string; relation: RelationInput }
   | { type: "SET_ZOOM"; zoom: number }
   | { type: "UPDATE_TABLE_POSITION"; tableId: string; x: number; y: number }
   | { type: "CREATE_PROJECT"; name: string; projectId: string }
@@ -146,6 +147,25 @@ export function reducer(state: AppState, action: Action): AppState {
     case "UPDATE_RELATION_KIND": {
       const relations = state.relations.map((relation) =>
         relation.id === action.relationId ? { ...relation, kind: action.kind } : relation,
+      );
+      return { ...state, relations };
+    }
+    case "UPDATE_RELATION": {
+      if (!state.relations.some((relation) => relation.id === action.relationId)) return state;
+      const normalized = normalizeRelation({
+        ...action.relation,
+        id: buildRelationId(
+          action.relation.fromTableId,
+          action.relation.fromFieldId,
+          action.relation.toTableId,
+          action.relation.toFieldId,
+        ),
+      });
+      if (state.relations.some((relation) => relation.id === normalized.id && relation.id !== action.relationId)) {
+        return state;
+      }
+      const relations = state.relations.map((relation) =>
+        relation.id === action.relationId ? normalized : relation,
       );
       return { ...state, relations };
     }

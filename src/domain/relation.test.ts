@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { normalizeRelation, formatFkReferentialActions } from "../domain/relation.ts";
+import { buildRelationId, normalizeRelation, formatFkReferentialActions } from "../domain/relation.ts";
+
+describe("buildRelationId", () => {
+  it("builds stable id from table and field endpoints", () => {
+    expect(buildRelationId("tbl_a", "fld_1", "tbl_b", "fld_2")).toBe("tbl_a_fld_1__tbl_b_fld_2");
+  });
+});
 
 describe("normalizeRelation", () => {
   it("applies defaults for missing fk actions", () => {
