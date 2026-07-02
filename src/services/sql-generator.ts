@@ -1,5 +1,6 @@
 import { isAutoIncrementType, isIntegerLikeType, mapDataTypeToSql, type SqlDialect } from "../lib/data-types.ts";
 import type { Field, Project, Relation, Table } from "../domain/types.ts";
+import { formatFkReferentialActions } from "../domain/relation.ts";
 
 function escapeSqlStringLiteral(value: string): string {
   return value.replace(/'/g, "''");
@@ -87,7 +88,7 @@ export function generateSql(project: Pick<Project, "tables" | "relations">, dial
         const toTable = getTableById(tables, relation.toTableId);
         const toField = getFieldName(tables, relation.toTableId, relation.toFieldId);
         if (!toTable) return "";
-        return `  FOREIGN KEY (${quoteIdentifier(fromField, dialect)}) REFERENCES ${quoteIdentifier(toTable.name, dialect)} (${quoteIdentifier(toField, dialect)})`;
+        return `  FOREIGN KEY (${quoteIdentifier(fromField, dialect)}) REFERENCES ${quoteIdentifier(toTable.name, dialect)} (${quoteIdentifier(toField, dialect)})${formatFkReferentialActions(relation)}`;
       })
       .filter(Boolean);
     const indexedFields = table.fields.filter((field) => field.isIndexed && !field.isPrimary && !field.isUnique);

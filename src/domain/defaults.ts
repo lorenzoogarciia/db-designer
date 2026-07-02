@@ -1,3 +1,4 @@
+import { DEFAULT_ON_DELETE, DEFAULT_ON_UPDATE } from "./relation.ts";
 import type { Project, Relation, Table } from "./types.ts";
 
 export const DEFAULT_TABLES: Table[] = [
@@ -33,6 +34,8 @@ export const DEFAULT_RELATIONS: Relation[] = [
     toTableId: "tbl_users",
     toFieldId: "fld_users_id",
     kind: "1:N",
+    onDelete: DEFAULT_ON_DELETE,
+    onUpdate: DEFAULT_ON_UPDATE,
   },
 ];
 

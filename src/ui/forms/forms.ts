@@ -1,7 +1,8 @@
 import { isAutoIncrementType, normalizeDataType } from "../../lib/data-types.ts";
 import { normalizeField, parseEnumValuesInput } from "../../domain/field.ts";
 import { generateId } from "../../domain/ids.ts";
-import type { RelationKind } from "../../domain/types.ts";
+import type { FkReferentialAction, RelationKind } from "../../domain/types.ts";
+import { isFkReferentialAction } from "../../domain/relation.ts";
 import type { Store } from "../../state/store.ts";
 import { getTableById, safeName } from "../../state/store.ts";
 import type { SelectControllers } from "../selects.ts";
@@ -120,11 +121,15 @@ export function wireRelationForm(store: Store, selects: SelectControllers): void
     const fromFieldId = selects.fromFieldSelect.getValue();
     const toFieldId = selects.toFieldSelect.getValue();
     const relationKind = (selects.relationKindSelect.getValue() || "1:N") as RelationKind;
+    const onDeleteRaw = selects.relationOnDeleteSelect.getValue() || "NO ACTION";
+    const onUpdateRaw = selects.relationOnUpdateSelect.getValue() || "NO ACTION";
+    const onDelete: FkReferentialAction = isFkReferentialAction(onDeleteRaw) ? onDeleteRaw : "NO ACTION";
+    const onUpdate: FkReferentialAction = isFkReferentialAction(onUpdateRaw) ? onUpdateRaw : "NO ACTION";
     if (!fromTableId || !toTableId || !fromFieldId || !toFieldId || fromTableId === toTableId) return;
     const relationId = `${fromTableId}_${fromFieldId}__${toTableId}_${toFieldId}`;
     store.dispatch({
       type: "ADD_RELATION",
-      relation: { id: relationId, fromTableId, fromFieldId, toTableId, toFieldId, kind: relationKind },
+      relation: { id: relationId, fromTableId, fromFieldId, toTableId, toFieldId, kind: relationKind, onDelete, onUpdate },
     });
     selects.refreshSelects({
       fromTable: true,
@@ -132,6 +137,8 @@ export function wireRelationForm(store: Store, selects: SelectControllers): void
       toTable: true,
       toField: true,
       relationKind: true,
+      onDelete: true,
+      onUpdate: true,
     });
   });
 }

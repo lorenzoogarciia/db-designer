@@ -66,6 +66,8 @@ src/
 | `fromTableId`, `fromFieldId` | string |
 | `toTableId`, `toFieldId` | string |
 | `kind` | `"1:1"` \| `"1:N"` \| `"N:M"` |
+| `onDelete` | `"NO ACTION"` \| `"RESTRICT"` \| `"CASCADE"` \| `"SET NULL"` \| `"SET DEFAULT"` |
+| `onUpdate` | `"NO ACTION"` \| `"RESTRICT"` \| `"CASCADE"` \| `"SET NULL"` \| `"SET DEFAULT"` |
 
 ### Project
 

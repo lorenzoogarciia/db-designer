@@ -15,11 +15,9 @@ export function mountAppShell(app: HTMLElement): void {
         <div class="form-grid">
           <label for="project-select">Proyecto activo</label>
           <div id="project-select" class="searchable-select-host"></div>
-          <div class="sql-actions">
+          <div class="project-actions">
             <button id="project-new-btn" type="button">Nuevo</button>
             <button id="project-rename-btn" type="button">Renombrar</button>
-          </div>
-          <div class="sql-actions">
             <button id="project-export-json-btn" type="button">Exportar JSON</button>
             <button id="project-import-json-btn" type="button">Importar JSON</button>
           </div>
@@ -70,6 +68,10 @@ export function mountAppShell(app: HTMLElement): void {
           <div id="to-field" class="searchable-select-host"></div>
           <label for="relation-kind">Tipo de relacion</label>
           <div id="relation-kind" class="searchable-select-host"></div>
+          <label for="relation-on-delete">ON DELETE</label>
+          <div id="relation-on-delete" class="searchable-select-host"></div>
+          <label for="relation-on-update">ON UPDATE</label>
+          <div id="relation-on-update" class="searchable-select-host"></div>
           <button type="submit">Agregar relacion</button>
         </form>
       </div>

@@ -1,4 +1,5 @@
 import { DATA_TYPE_OPTIONS } from "../lib/data-types.ts";
+import { FK_REFERENTIAL_ACTIONS, DEFAULT_ON_DELETE, DEFAULT_ON_UPDATE } from "../domain/relation.ts";
 import { mountSearchableSelect, type SearchableSelect, type SelectOption } from "../components/searchable-select.ts";
 import type { Store } from "../state/store.ts";
 import { getTableById } from "../state/store.ts";
@@ -16,6 +17,11 @@ const RELATION_KIND_OPTIONS: SelectOption[] = [
   { value: "N:M", label: "N:M (muchos a muchos)" },
 ];
 
+const FK_ACTION_OPTIONS: SelectOption[] = FK_REFERENTIAL_ACTIONS.map((action) => ({
+  value: action,
+  label: action,
+}));
+
 export interface SelectControllers {
   projectSelect: SearchableSelect;
   fieldTableSelect: SearchableSelect;
@@ -25,6 +31,8 @@ export interface SelectControllers {
   toTableSelect: SearchableSelect;
   toFieldSelect: SearchableSelect;
   relationKindSelect: SearchableSelect;
+  relationOnDeleteSelect: SearchableSelect;
+  relationOnUpdateSelect: SearchableSelect;
   fieldEditTypeSelect: SearchableSelect;
   refreshProjectSelect: () => void;
   refreshSelects: (preserve?: {
@@ -34,6 +42,8 @@ export interface SelectControllers {
     toTable?: boolean;
     toField?: boolean;
     relationKind?: boolean;
+    onDelete?: boolean;
+    onUpdate?: boolean;
   }) => void;
 }
 
@@ -46,9 +56,23 @@ export function createSelectControllers(store: Store): SelectControllers {
   const toTableHost = document.querySelector<HTMLDivElement>("#to-table");
   const toFieldHost = document.querySelector<HTMLDivElement>("#to-field");
   const relationKindHost = document.querySelector<HTMLDivElement>("#relation-kind");
+  const relationOnDeleteHost = document.querySelector<HTMLDivElement>("#relation-on-delete");
+  const relationOnUpdateHost = document.querySelector<HTMLDivElement>("#relation-on-update");
   const fieldEditTypeHost = document.querySelector<HTMLDivElement>("#field-edit-type");
 
-  if (!projectSelectHost || !fieldTableHost || !fieldTypeHost || !fromTableHost || !fromFieldHost || !toTableHost || !toFieldHost || !relationKindHost || !fieldEditTypeHost) {
+  if (
+    !projectSelectHost ||
+    !fieldTableHost ||
+    !fieldTypeHost ||
+    !fromTableHost ||
+    !fromFieldHost ||
+    !toTableHost ||
+    !toFieldHost ||
+    !relationKindHost ||
+    !relationOnDeleteHost ||
+    !relationOnUpdateHost ||
+    !fieldEditTypeHost
+  ) {
     throw new Error("No se pudieron inicializar los selectores");
   }
 
@@ -103,6 +127,22 @@ export function createSelectControllers(store: Store): SelectControllers {
     initialOptions: RELATION_KIND_OPTIONS,
     initialValue: "1:N",
   });
+  const relationOnDeleteSelect = mountSearchableSelect(relationOnDeleteHost, {
+    name: "relationOnDelete",
+    required: true,
+    placeholder: "ON DELETE...",
+    searchPlaceholder: "Buscar accion...",
+    initialOptions: FK_ACTION_OPTIONS,
+    initialValue: DEFAULT_ON_DELETE,
+  });
+  const relationOnUpdateSelect = mountSearchableSelect(relationOnUpdateHost, {
+    name: "relationOnUpdate",
+    required: true,
+    placeholder: "ON UPDATE...",
+    searchPlaceholder: "Buscar accion...",
+    initialOptions: FK_ACTION_OPTIONS,
+    initialValue: DEFAULT_ON_UPDATE,
+  });
   const fieldEditTypeSelect = mountSearchableSelect(fieldEditTypeHost, {
     required: true,
     placeholder: "Seleccionar tipo...",
@@ -150,6 +190,8 @@ export function createSelectControllers(store: Store): SelectControllers {
       toTable?: boolean;
       toField?: boolean;
       relationKind?: boolean;
+      onDelete?: boolean;
+      onUpdate?: boolean;
     } = {},
   ) {
     const state = store.getState();
@@ -181,6 +223,20 @@ export function createSelectControllers(store: Store): SelectControllers {
     } else if (!relationKindSelect.getValue()) {
       relationKindSelect.setValue("1:N");
     }
+
+    if (preserve.onDelete) {
+      const onDelete = relationOnDeleteSelect.getValue() || DEFAULT_ON_DELETE;
+      relationOnDeleteSelect.setValue(onDelete);
+    } else if (!relationOnDeleteSelect.getValue()) {
+      relationOnDeleteSelect.setValue(DEFAULT_ON_DELETE);
+    }
+
+    if (preserve.onUpdate) {
+      const onUpdate = relationOnUpdateSelect.getValue() || DEFAULT_ON_UPDATE;
+      relationOnUpdateSelect.setValue(onUpdate);
+    } else if (!relationOnUpdateSelect.getValue()) {
+      relationOnUpdateSelect.setValue(DEFAULT_ON_UPDATE);
+    }
   }
 
   fromTableSelect.onChange(() => syncFromFieldSelect(false));
@@ -195,6 +251,8 @@ export function createSelectControllers(store: Store): SelectControllers {
     toTableSelect,
     toFieldSelect,
     relationKindSelect,
+    relationOnDeleteSelect,
+    relationOnUpdateSelect,
     fieldEditTypeSelect,
     refreshProjectSelect,
     refreshSelects,

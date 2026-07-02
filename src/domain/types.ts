@@ -2,6 +2,8 @@ import type { DataType } from "../lib/data-types.ts";
 
 export type RelationKind = "1:1" | "1:N" | "N:M";
 
+export type FkReferentialAction = "NO ACTION" | "RESTRICT" | "CASCADE" | "SET NULL" | "SET DEFAULT";
+
 export interface Field {
   id: string;
   name: string;
@@ -30,6 +32,8 @@ export interface Relation {
   toTableId: string;
   toFieldId: string;
   kind: RelationKind;
+  onDelete: FkReferentialAction;
+  onUpdate: FkReferentialAction;
 }
 
 export interface Project {

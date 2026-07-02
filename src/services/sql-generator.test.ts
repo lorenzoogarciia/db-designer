@@ -80,4 +80,61 @@ describe("generateSql", () => {
     expect(sql).toContain("CREATE TABLE [users]");
     expect(sql).toContain("IDENTITY(1,1)");
   });
+
+  it("includes on delete and on update in foreign keys", () => {
+    const withFk = {
+      tables: [
+        {
+          id: "t1",
+          name: "posts",
+          x: 0,
+          y: 0,
+          fields: [
+            {
+              id: "f1",
+              name: "user_id",
+              type: "integer",
+              nullable: false,
+              isPrimary: false,
+              isUnique: false,
+              autoIncrement: false,
+              isIndexed: true,
+            },
+          ],
+        },
+        {
+          id: "t2",
+          name: "users",
+          x: 0,
+          y: 0,
+          fields: [
+            {
+              id: "f2",
+              name: "id",
+              type: "integer",
+              nullable: false,
+              isPrimary: true,
+              isUnique: true,
+              autoIncrement: true,
+              isIndexed: true,
+            },
+          ],
+        },
+      ],
+      relations: [
+        {
+          id: "rel1",
+          fromTableId: "t1",
+          fromFieldId: "f1",
+          toTableId: "t2",
+          toFieldId: "f2",
+          kind: "1:N" as const,
+          onDelete: "CASCADE" as const,
+          onUpdate: "RESTRICT" as const,
+        },
+      ],
+    };
+    const sql = generateSql(withFk, "postgresql");
+    expect(sql).toContain('REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE RESTRICT');
+  });
 });

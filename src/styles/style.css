@@ -124,16 +124,20 @@ html[data-theme="light"] {
 
 body {
   margin: 0;
+  overflow: hidden;
 }
 
 #app {
-  min-height: 100vh;
+  height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
 }
 
 .layout {
   display: grid;
   grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
-  min-height: 100vh;
+  height: 100%;
+  max-height: 100vh;
   width: 100%;
   max-width: 100vw;
   overflow: hidden;
@@ -141,13 +145,18 @@ body {
 
 .panel {
   padding: 20px;
+  min-height: 0;
 }
 
 .controls {
   border-right: 1px solid var(--color-border);
   background: var(--color-bg-panel);
   overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
   min-width: 0;
+  height: 100%;
+  max-height: 100vh;
 }
 
 .app-header {
@@ -213,6 +222,17 @@ body {
   margin-bottom: 8px;
 }
 
+.project-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+
+.project-actions button {
+  width: 100%;
+}
+
 .form-grid {
   display: grid;
   gap: 8px;
@@ -248,6 +268,7 @@ button {
 button.primary-btn,
 button[type="submit"]:not(.neutral-btn):not(.danger-btn),
 .sql-actions button:not(.danger-btn),
+.project-actions button:not(.danger-btn),
 .modal-header button:not(.neutral-btn),
 .modal-actions button,
 .toolbar-actions button:not(.theme-toggle-btn):not(.neutral-btn):not(.danger-btn) {
@@ -259,6 +280,7 @@ button[type="submit"]:not(.neutral-btn):not(.danger-btn),
 button.primary-btn:hover,
 button[type="submit"]:not(.neutral-btn):not(.danger-btn):hover,
 .sql-actions button:not(.danger-btn):hover,
+.project-actions button:not(.danger-btn):hover,
 .modal-header button:not(.neutral-btn):hover,
 .modal-actions button:hover,
 .toolbar-actions button:not(.theme-toggle-btn):not(.neutral-btn):not(.danger-btn):hover {
@@ -283,6 +305,10 @@ button[type="submit"]:not(.neutral-btn):not(.danger-btn):hover,
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
+  height: 100%;
+  max-height: 100vh;
+  overflow: hidden;
 }
 
 .diagram-toolbar {
@@ -291,6 +317,7 @@ button[type="submit"]:not(.neutral-btn):not(.danger-btn):hover,
   align-items: center;
   margin-bottom: 16px;
   gap: 12px;
+  flex-shrink: 0;
 }
 
 .diagram-toolbar h2 {
@@ -315,11 +342,12 @@ button[type="submit"]:not(.neutral-btn):not(.danger-btn):hover,
 .diagram {
   position: relative;
   flex: 1;
-  min-height: 650px;
+  min-height: 0;
   border: 1px solid var(--color-border);
   border-radius: 12px;
   background: radial-gradient(circle at top left, var(--color-bg-diagram-gradient-start) 0%, var(--color-bg-diagram-gradient-end) 52%);
   overflow: auto;
+  overscroll-behavior: contain;
   cursor: grab;
 }
 
@@ -785,10 +813,18 @@ button[type="submit"]:not(.neutral-btn):not(.danger-btn):hover,
 @media (max-width: 1080px) {
   .layout {
     grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 42vh) minmax(0, 58vh);
   }
 
   .controls {
     border-right: none;
     border-bottom: 1px solid var(--color-border);
+    max-height: none;
+    height: auto;
+  }
+
+  .diagram-area {
+    max-height: none;
+    height: auto;
   }
 }

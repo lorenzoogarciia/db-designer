@@ -1,5 +1,6 @@
 import { createDefaultProject, DEFAULT_RELATIONS } from "../domain/defaults.ts";
 import { normalizeTables } from "../domain/field.ts";
+import { normalizeRelations } from "../domain/relation.ts";
 import type { AppState, PersistedState, Project } from "../domain/types.ts";
 
 export const STORAGE_KEY = "dbdesigner.state.v1";
@@ -35,7 +36,7 @@ function normalizeProjects(projects: Project[]): Project[] {
   return projects.map((project) => ({
     ...project,
     tables: normalizeTables(project.tables),
-    relations: project.relations ?? [],
+    relations: normalizeRelations(project.relations ?? []),
     zoom: typeof project.zoom === "number" ? project.zoom : 1,
   }));
 }

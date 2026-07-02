@@ -17,6 +17,15 @@ if (!app) throw new Error("No se encontro #app");
 
 mountAppShell(app);
 
+const controlsPanel = document.querySelector<HTMLElement>(".controls");
+controlsPanel?.addEventListener(
+  "wheel",
+  (event) => {
+    event.stopPropagation();
+  },
+  { passive: true },
+);
+
 const store = createStore(loadInitialState(), saveState);
 const selects = createSelectControllers(store);
 
