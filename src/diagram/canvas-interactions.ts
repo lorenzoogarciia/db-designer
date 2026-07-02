@@ -45,7 +45,7 @@ export function wireCanvasInteractions(
     }
 
     const relationNode = (event.target as Element).closest("[data-relation-id]");
-    if (relationNode && !deleteRelationEl) {
+    if (relationNode && !deleteRelationEl && !(event.target as Element).closest("[data-action='delete-relation']")) {
       const relationId = relationNode.getAttribute("data-relation-id");
       if (relationId) {
         const relation = store.getState().relations.find((r) => r.id === relationId);
@@ -98,10 +98,10 @@ export function wireCanvasInteractions(
 
   diagramElement.addEventListener("mousedown", (event) => {
     if (event.button !== 0) return;
-    event.preventDefault();
-    const target = event.target as HTMLElement;
-    if ((event.target as Element).closest("[data-relation-id]")) return;
+    const target = event.target as Element;
+    if (target.closest("[data-relation-id]") || target.closest("[data-action='delete-relation']")) return;
     if (target.closest("button")) return;
+    event.preventDefault();
     const tableCard = target.closest<HTMLElement>(".table-card");
     if (tableCard) {
       const tableId = tableCard.dataset.tableId;

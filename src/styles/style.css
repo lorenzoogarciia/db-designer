@@ -363,12 +363,13 @@ button[type="submit"]:not(.neutral-btn):not(.danger-btn):hover,
   position: absolute;
   inset: 0;
   z-index: 10;
+  pointer-events: none;
 }
 
 .relation-layer {
   position: absolute;
   inset: 0;
-  z-index: 5;
+  z-index: 15;
   pointer-events: none;
   overflow: visible;
 }
@@ -490,6 +491,7 @@ button[type="submit"]:not(.neutral-btn):not(.danger-btn):hover,
   cursor: grab;
   transform-origin: top left;
   z-index: 10;
+  pointer-events: auto;
 }
 
 .table-card:hover {
