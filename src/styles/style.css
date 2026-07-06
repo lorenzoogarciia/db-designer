@@ -320,8 +320,28 @@ button[type="submit"]:not(.neutral-btn):not(.danger-btn):hover,
   flex-shrink: 0;
 }
 
+.diagram-toolbar-start {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+
+.diagram-table-search {
+  width: min(280px, 100%);
+  flex-shrink: 1;
+}
+
+.diagram-table-search .combobox-trigger {
+  min-height: 36px;
+  padding: 6px 10px;
+  font-size: 0.9rem;
+}
+
 .diagram-toolbar h2 {
   margin: 0;
+  white-space: nowrap;
 }
 
 .toolbar-actions {
@@ -355,6 +375,10 @@ button[type="submit"]:not(.neutral-btn):not(.danger-btn):hover,
   cursor: grabbing;
 }
 
+.diagram.is-table-dragging {
+  cursor: grabbing;
+}
+
 .diagram-scene {
   position: relative;
 }
@@ -366,19 +390,28 @@ button[type="submit"]:not(.neutral-btn):not(.danger-btn):hover,
   pointer-events: none;
 }
 
-.relation-layer {
+.relation-lines-layer {
   position: absolute;
   inset: 0;
-  z-index: 15;
+  z-index: 5;
   pointer-events: none;
   overflow: visible;
 }
 
-.relation-bundle {
+.relation-labels-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.relation-line-bundle,
+.relation-label-bundle {
   pointer-events: auto;
 }
 
-.relation-layer path {
+.relation-lines-layer path {
   stroke: var(--color-relation-stroke);
   stroke-width: 2.5;
   fill: none;
@@ -500,6 +533,22 @@ button[type="submit"]:not(.neutral-btn):not(.danger-btn):hover,
 
 .table-card:active {
   cursor: grabbing;
+}
+
+.table-card.is-dragging {
+  z-index: 100;
+  cursor: grabbing;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
+  transition: box-shadow 0.15s ease;
+  will-change: left, top;
+}
+
+.table-card.is-focused {
+  z-index: 12;
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.28);
+  transition: outline-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .table-card-header {

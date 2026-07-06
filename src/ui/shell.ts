@@ -90,7 +90,10 @@ export function mountAppShell(app: HTMLElement): void {
 
     <section class="panel diagram-area">
       <div class="diagram-toolbar">
-        <h2>Diagrama</h2>
+        <div class="diagram-toolbar-start">
+          <h2>Diagrama</h2>
+          <div id="diagram-table-search" class="searchable-select-host diagram-table-search"></div>
+        </div>
         <div class="toolbar-actions">
           <button id="theme-toggle-diagram-btn" type="button" class="theme-toggle-btn" aria-label="Cambiar tema"></button>
           <button id="zoom-out-btn" type="button">-</button>

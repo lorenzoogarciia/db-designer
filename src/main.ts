@@ -10,6 +10,7 @@ import { wireSqlModal } from "./ui/modals/sql-modal.ts";
 import { wireProjectPanel } from "./ui/project-panel.ts";
 import { createSelectControllers } from "./ui/selects.ts";
 import { mountAppShell } from "./ui/shell.ts";
+import { wireDiagramTableSearch } from "./ui/diagram-table-search.ts";
 import { wireThemeToggles } from "./ui/theme-controls.ts";
 import "./styles/style.css";
 
@@ -55,6 +56,7 @@ wireCanvasInteractions(store, diagram, {
   onEditField: openFieldEditModal,
   onEditRelation: openRelationEditModal,
 });
+wireDiagramTableSearch(store, diagram);
 
 zoomOutButton.addEventListener("click", () => diagram.setZoom(store.getState().zoom - 0.1));
 zoomInButton.addEventListener("click", () => diagram.setZoom(store.getState().zoom + 0.1));
