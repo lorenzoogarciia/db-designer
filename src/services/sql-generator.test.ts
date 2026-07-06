@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateSql, quoteIdentifier } from "../services/sql-generator.ts";
+import { filterProjectByTableIds, generateSql, quoteIdentifier } from "../services/sql-generator.ts";
 
 describe("quoteIdentifier", () => {
   it("quotes per dialect", () => {
@@ -165,5 +165,88 @@ describe("generateSql", () => {
     };
     const sql = generateSql(withDefault, "mysql");
     expect(sql).toContain("`title` TEXT NULL DEFAULT 'sin_titulo'");
+  });
+
+  it("filters tables and relations by selected ids", () => {
+    const withFk = {
+      tables: [
+        {
+          id: "t1",
+          name: "posts",
+          x: 0,
+          y: 0,
+          fields: [
+            {
+              id: "f1",
+              name: "user_id",
+              type: "integer",
+              nullable: false,
+              isPrimary: false,
+              isUnique: false,
+              autoIncrement: false,
+              isIndexed: true,
+            },
+          ],
+        },
+        {
+          id: "t2",
+          name: "users",
+          x: 0,
+          y: 0,
+          fields: [
+            {
+              id: "f2",
+              name: "id",
+              type: "integer",
+              nullable: false,
+              isPrimary: true,
+              isUnique: true,
+              autoIncrement: true,
+              isIndexed: true,
+            },
+          ],
+        },
+        {
+          id: "t3",
+          name: "comments",
+          x: 0,
+          y: 0,
+          fields: [
+            {
+              id: "f3",
+              name: "body",
+              type: "text",
+              nullable: false,
+              isPrimary: false,
+              isUnique: false,
+              autoIncrement: false,
+              isIndexed: false,
+            },
+          ],
+        },
+      ],
+      relations: [
+        {
+          id: "rel1",
+          fromTableId: "t1",
+          fromFieldId: "f1",
+          toTableId: "t2",
+          toFieldId: "f2",
+          kind: "1:N" as const,
+          onDelete: "CASCADE" as const,
+          onUpdate: "RESTRICT" as const,
+        },
+      ],
+    };
+
+    const filtered = filterProjectByTableIds(withFk, new Set(["t1"]));
+    const sql = generateSql(filtered, "postgresql");
+
+    expect(filtered.tables.map((table) => table.name)).toEqual(["posts"]);
+    expect(filtered.relations).toHaveLength(0);
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS "posts"');
+    expect(sql).not.toContain("FOREIGN KEY");
+    expect(sql).not.toContain('"users"');
+    expect(sql).not.toContain('"comments"');
   });
 });

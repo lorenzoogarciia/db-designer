@@ -55,6 +55,7 @@ export function getTableHeight(table: Table): number {
 }
 
 export type TableWidthResolver = (table: Table) => number;
+export type TableHeightResolver = (table: Table) => number;
 
 export function getCanvasBounds(
   tables: Table[],

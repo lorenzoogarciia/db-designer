@@ -1,6 +1,7 @@
 import type { Store } from "../state/store.ts";
 import { getFieldName, getTableById } from "../state/store.ts";
-import { CANVAS_GUTTER, estimateTableWidth, getCanvasBounds, getTableHeight, getTablesLogicalBounds } from "./layout.ts";
+import { CANVAS_GUTTER, estimateTableWidth, getCanvasBounds, getTableHeight as estimateTableHeight, getTablesLogicalBounds } from "./layout.ts";
+import { TABLE_COLLISION_PADDING, type Rect } from "./relation-label-placement.ts";
 import { buildRelationLayersMarkup } from "./relation-renderer.ts";
 import { buildTableMarkup } from "./table-renderer.ts";
 
@@ -20,21 +21,52 @@ export function createDiagramController(
   zoomLabelElement: HTMLSpanElement,
 ): DiagramController {
   const measuredTableWidths = new Map<string, number>();
+  const measuredTableHeights = new Map<string, number>();
   let draggingTableId: string | null = null;
 
   function getTableWidth(table: { id: string; name: string; fields: { name: string }[] }) {
     return measuredTableWidths.get(table.id) ?? estimateTableWidth(table as Parameters<typeof estimateTableWidth>[0]);
   }
 
-  function measureTableWidths() {
+  function getTableHeight(table: { id: string; fields: { name: string }[] }) {
+    return measuredTableHeights.get(table.id) ?? estimateTableHeight(table as Parameters<typeof estimateTableHeight>[0]);
+  }
+
+  function measureTableDimensions() {
     measuredTableWidths.clear();
+    measuredTableHeights.clear();
     const state = store.getState();
     state.tables.forEach((table) => {
       const element = diagramElement.querySelector<HTMLElement>(`.table-card[data-table-id="${table.id}"]`);
       if (element) {
         measuredTableWidths.set(table.id, element.offsetWidth);
+        measuredTableHeights.set(table.id, element.offsetHeight);
       }
     });
+  }
+
+  function getTableCollisionRects(): Rect[] {
+    const scene = diagramElement.querySelector<HTMLElement>("#diagram-scene");
+    if (!scene) return [];
+
+    const sceneRect = scene.getBoundingClientRect();
+    const padding = TABLE_COLLISION_PADDING;
+    const state = store.getState();
+
+    return state.tables
+      .map((table) => {
+        const element = diagramElement.querySelector<HTMLElement>(`.table-card[data-table-id="${table.id}"]`);
+        if (!element) return null;
+
+        const rect = element.getBoundingClientRect();
+        return {
+          left: rect.left - sceneRect.left - padding,
+          top: rect.top - sceneRect.top - padding,
+          right: rect.right - sceneRect.left + padding,
+          bottom: rect.bottom - sceneRect.top + padding,
+        };
+      })
+      .filter((rect): rect is Rect => rect !== null);
   }
 
   function render() {
@@ -49,6 +81,7 @@ export function createDiagramController(
 
     zoomLabelElement.textContent = `${Math.round(state.zoom * 100)}%`;
     measuredTableWidths.clear();
+    measuredTableHeights.clear();
 
     const viewportWidth = diagramElement.clientWidth || 900;
     const viewportHeight = diagramElement.clientHeight || 650;
@@ -69,7 +102,7 @@ export function createDiagramController(
     </div>
   `;
 
-    measureTableWidths();
+    measureTableDimensions();
     bounds = getCanvasBounds(state.tables, state.zoom, viewportWidth, viewportHeight, getTableWidth);
 
     const scene = diagramElement.querySelector<HTMLElement>("#diagram-scene");
@@ -93,6 +126,8 @@ export function createDiagramController(
         getTableById: (id: string) => getTableById(appState, id),
         getFieldName: (tableId: string, fieldId: string) => getFieldName(appState, tableId, fieldId),
         getTableWidth,
+        getTableHeight,
+        getTableCollisionRects,
       };
       const { lines, labels } = buildRelationLayersMarkup(relationCtx);
       relationLinesLayer.innerHTML = `

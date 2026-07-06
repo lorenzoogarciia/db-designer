@@ -697,7 +697,7 @@ export function buildRoutedRelationPath(
   laneOffset: number,
   canvasGutter: number,
   zoom: number,
-): { path: string; labelPoint: { x: number; y: number } } {
+): { path: string; pathPoints: Array<{ x: number; y: number }>; labelPoint: { x: number; y: number } } {
   const points = buildRoutePoints(from, to, tables, fromTableId, toTableId, laneOffset);
 
   const scaled = points.map((point) => ({
@@ -713,5 +713,5 @@ export function buildRoutedRelationPath(
     y: (scaled[midIndex].y + scaled[nextIndex].y) / 2,
   };
 
-  return { path, labelPoint };
+  return { path, pathPoints: scaled, labelPoint };
 }

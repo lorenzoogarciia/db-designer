@@ -731,6 +731,41 @@ button[type="submit"]:not(.neutral-btn):not(.danger-btn):hover,
   height: auto;
 }
 
+.sql-export-tables-card {
+  width: min(480px, 96vw);
+  height: auto;
+  max-height: min(80vh, 640px);
+}
+
+.sql-export-tables-hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.92rem;
+}
+
+.sql-export-tables-toolbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sql-export-tables-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  min-height: 80px;
+  max-height: min(50vh, 420px);
+  padding: 8px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  background: var(--color-bg-input);
+}
+
+.sql-export-tables-actions {
+  gap: 8px;
+}
+
 .relation-edit-actions {
   justify-content: space-between;
   gap: 12px;

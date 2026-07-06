@@ -106,6 +106,24 @@ export function mountAppShell(app: HTMLElement): void {
       <div id="diagram" class="diagram"></div>
     </section>
   </main>
+  <div id="sql-export-tables-modal" class="modal hidden">
+    <div class="modal-card sql-export-tables-card">
+      <div class="modal-header">
+        <h3 id="sql-export-tables-title">Seleccionar tablas</h3>
+        <button id="sql-export-tables-close" type="button" class="neutral-btn">Cerrar</button>
+      </div>
+      <p class="sql-export-tables-hint">Elige las tablas que quieres incluir en el SQL generado.</p>
+      <div class="sql-export-tables-toolbar">
+        <button id="sql-export-tables-select-all" type="button" class="neutral-btn">Seleccionar todas</button>
+        <button id="sql-export-tables-select-none" type="button" class="neutral-btn">Ninguna</button>
+      </div>
+      <div id="sql-export-tables-list" class="sql-export-tables-list"></div>
+      <div class="modal-actions sql-export-tables-actions">
+        <button id="sql-export-tables-cancel" type="button" class="neutral-btn">Cancelar</button>
+        <button id="sql-export-tables-confirm" type="button">Exportar</button>
+      </div>
+    </div>
+  </div>
   <div id="sql-modal" class="modal hidden">
     <div class="modal-card">
       <div class="modal-header">

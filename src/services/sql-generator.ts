@@ -69,6 +69,17 @@ function getTableById(tables: Table[], tableId: string): Table | undefined {
   return tables.find((table) => table.id === tableId);
 }
 
+export function filterProjectByTableIds(
+  project: Pick<Project, "tables" | "relations">,
+  tableIds: ReadonlySet<string>,
+): Pick<Project, "tables" | "relations"> {
+  const tables = project.tables.filter((table) => tableIds.has(table.id));
+  const relations = project.relations.filter(
+    (relation) => tableIds.has(relation.fromTableId) && tableIds.has(relation.toTableId),
+  );
+  return { tables, relations };
+}
+
 export function generateSql(project: Pick<Project, "tables" | "relations">, dialect: SqlDialect): string {
   const { tables, relations } = project;
   const statements: string[] = [];
