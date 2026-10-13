@@ -1,5 +1,6 @@
 import { normalizeTables } from "../domain/field.ts";
 import { normalizeRelations } from "../domain/relation.ts";
+import { normalizeTablesOrigin } from "../diagram/layout.ts";
 import type { ExportedProject, Project, Table } from "../domain/types.ts";
 import { safeDownloadLink } from "../utils/dom.ts";
 
@@ -43,7 +44,7 @@ export function parseImportedProject(raw: unknown): Omit<Project, "id"> | null {
 
   return {
     name,
-    tables: normalizeTables(tables),
+    tables: normalizeTablesOrigin(normalizeTables(tables)).tables,
     relations: normalizeRelations(relations),
     zoom,
   };

@@ -42,7 +42,10 @@ interface PreparedRelation {
   relationTooltip: string;
 }
 
-function renderRelationParts(ctx: RelationRenderContext): { lines: string; labels: string } {
+function renderRelationParts(
+  ctx: RelationRenderContext,
+  quality: "fast" | "full" = "full",
+): { lines: string; labels: string } {
   const laneUsage = new Map<string, number>();
   const routeTables = ctx.tables.map((table) => ({
     id: table.id,
@@ -79,6 +82,7 @@ function renderRelationParts(ctx: RelationRenderContext): { lines: string; label
       laneOffset,
       CANVAS_GUTTER,
       ctx.zoom,
+      quality,
     );
 
     const fromField = ctx.getFieldName(relation.fromTableId, relation.fromFieldId);
@@ -104,6 +108,10 @@ function renderRelationParts(ctx: RelationRenderContext): { lines: string; label
   const canvasBounds = { width: ctx.bounds.scaledWidth, height: ctx.bounds.scaledHeight };
 
   for (const item of prepared) {
+    if (quality === "fast") {
+      labelPositions.set(item.relation.id, item.preferredLabelPoint);
+      continue;
+    }
     const position = placeRelationLabel(
       item.pathPoints,
       item.preferredLabelPoint,
@@ -157,8 +165,11 @@ function renderRelationParts(ctx: RelationRenderContext): { lines: string; label
   return { lines: lines.join(""), labels: labels.join("") };
 }
 
-export function buildRelationLayersMarkup(ctx: RelationRenderContext): { lines: string; labels: string } {
-  return renderRelationParts(ctx);
+export function buildRelationLayersMarkup(
+  ctx: RelationRenderContext,
+  quality: "fast" | "full" = "full",
+): { lines: string; labels: string } {
+  return renderRelationParts(ctx, quality);
 }
 
 export function buildRelationLinesMarkup(ctx: RelationRenderContext): string {

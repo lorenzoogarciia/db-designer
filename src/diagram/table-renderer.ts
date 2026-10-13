@@ -1,5 +1,5 @@
 import type { Field, Table } from "../domain/types.ts";
-import { CANVAS_GUTTER } from "./constants.ts";
+import { tableCardTransform } from "./card-style.ts";
 import { getFieldMetaLabel } from "./layout.ts";
 import type { TableWidthResolver } from "./layout.ts";
 
@@ -27,7 +27,7 @@ export function buildTableMarkup(tables: Table[], zoom: number): string {
         )
         .join("");
       return `
-        <article class="table-card" data-table-id="${table.id}" style="left:${(table.x + CANVAS_GUTTER) * zoom}px;top:${(table.y + CANVAS_GUTTER) * zoom}px;transform:scale(${zoom})">
+        <article class="table-card" data-table-id="${table.id}" style="transform:${tableCardTransform(table.x, table.y, zoom)}">
           <div class="table-card-header">
             <h3>${table.name}</h3>
             <div class="table-actions">

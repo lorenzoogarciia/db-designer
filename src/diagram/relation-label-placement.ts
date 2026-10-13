@@ -100,23 +100,21 @@ export function buildLabelCandidates(pathPoints: Point[], preferred: Point): Poi
     const end = pathPoints[i + 1];
     if (segmentLength(start, end) < 16) continue;
 
-    for (const t of [0.15, 0.25, 0.35, 0.5, 0.65, 0.75, 0.85]) {
+    for (const t of [0.25, 0.5, 0.75]) {
       candidates.push(interpolate(start, end, t));
     }
-  }
-
-  for (let i = 0; i < pathPoints.length - 1; i++) {
-    candidates.push(interpolate(pathPoints[i], pathPoints[i + 1], 0.5));
   }
 
   return uniquePoints(candidates);
 }
 
 function buildOffsetCandidates(basePoints: Point[], pathPoints: Point[]): Point[] {
-  const offsets = [16, 28, 42, 56, 72, 88];
+  const offsets = [16, 28, 48, 72];
   const candidates: Point[] = [];
+  // Cap how many path anchors we expand — enough for good placement, cheap for dense diagrams.
+  const limitedBases = basePoints.slice(0, 12);
 
-  for (const base of basePoints) {
+  for (const base of limitedBases) {
     candidates.push(base);
     for (const distance of offsets) {
       candidates.push(
@@ -134,7 +132,7 @@ function buildOffsetCandidates(basePoints: Point[], pathPoints: Point[]): Point[
     if (segmentLength(start, end) < 12) continue;
 
     const normal = segmentNormal(start, end);
-    for (const t of [0.25, 0.5, 0.75]) {
+    for (const t of [0.35, 0.5, 0.65]) {
       const anchor = interpolate(start, end, t);
       for (const distance of offsets) {
         candidates.push(
@@ -188,8 +186,8 @@ function findSpiralEscapePoint(
   tableRects: Rect[],
   canvasBounds?: { width: number; height: number },
 ): Point | null {
-  for (let radius = 0; radius <= 900; radius += 12) {
-    for (let angle = 0; angle < 360; angle += 15) {
+  for (let radius = 0; radius <= 240; radius += 16) {
+    for (let angle = 0; angle < 360; angle += 30) {
       const radians = (angle * Math.PI) / 180;
       const candidate = {
         x: preferred.x + Math.cos(radians) * radius,
@@ -207,8 +205,9 @@ function findAnyFreeCanvasPoint(
   tableRects: Rect[],
   canvasBounds: { width: number; height: number },
 ): Point {
-  for (let y = 20; y < canvasBounds.height - 20; y += 22) {
-    for (let x = 20; x < canvasBounds.width - 20; x += 22) {
+  // Coarse scan — only used as last resort after spiral fails.
+  for (let y = 20; y < canvasBounds.height - 20; y += 48) {
+    for (let x = 20; x < canvasBounds.width - 20; x += 48) {
       const candidate = { x, y };
       if (isValidLabelPositionAvoidingTables(candidate, tableRects, canvasBounds)) {
         return candidate;

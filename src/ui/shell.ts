@@ -191,5 +191,28 @@ export function mountAppShell(app: HTMLElement): void {
       </form>
     </div>
   </div>
+  <div id="table-edit-modal" class="modal hidden">
+    <div class="modal-card table-edit-card">
+      <div class="modal-header">
+        <h3 id="table-edit-title">Editar tabla</h3>
+        <button id="table-edit-close" type="button">Cerrar</button>
+      </div>
+      <form id="table-edit-form" class="form-grid">
+        <input id="table-edit-table-id" type="hidden" />
+        <label for="table-edit-name">Nombre</label>
+        <input id="table-edit-name" required placeholder="nombre_tabla" />
+        <div class="modal-actions">
+          <button type="submit">Guardar nombre</button>
+        </div>
+      </form>
+      <div class="table-edit-relations">
+        <div class="table-edit-relations-header">
+          <h4>Relaciones de la tabla</h4>
+          <span id="table-edit-relations-count" class="table-edit-relations-count"></span>
+        </div>
+        <div id="table-edit-relations-list" class="table-edit-relations-list"></div>
+      </div>
+    </div>
+  </div>
 `;
 }

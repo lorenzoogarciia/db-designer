@@ -6,6 +6,7 @@ import { createStore } from "./state/store.ts";
 import { wireTableForm, wireFieldForm, wireRelationForm } from "./ui/forms/forms.ts";
 import { wireFieldEditModal } from "./ui/modals/field-edit-modal.ts";
 import { wireRelationEditModal } from "./ui/modals/relation-edit-modal.ts";
+import { wireTableEditModal } from "./ui/modals/table-edit-modal.ts";
 import { wireSqlModal } from "./ui/modals/sql-modal.ts";
 import { wireProjectPanel } from "./ui/project-panel.ts";
 import { createSelectControllers } from "./ui/selects.ts";
@@ -45,6 +46,9 @@ if (!diagramElement || !zoomLabel || !zoomOutButton || !zoomInButton || !fitButt
 const diagram = createDiagramController(store, diagramElement, zoomLabel);
 const { openFieldEditModal } = wireFieldEditModal(store, selects);
 const { openRelationEditModal } = wireRelationEditModal(store);
+const { openTableEditModal } = wireTableEditModal(store, {
+  onEditRelation: openRelationEditModal,
+});
 
 wireThemeToggles();
 wireProjectPanel(store, selects);
@@ -53,6 +57,7 @@ wireFieldForm(store, selects);
 wireRelationForm(store, selects);
 wireSqlModal(store);
 wireCanvasInteractions(store, diagram, {
+  onEditTable: openTableEditModal,
   onEditField: openFieldEditModal,
   onEditRelation: openRelationEditModal,
 });
@@ -77,6 +82,12 @@ diagramElement.addEventListener(
 selects.refreshProjectSelect();
 selects.refreshSelects();
 diagram.render();
+// After gutter/origin fixes, center content so no table stays off-screen.
+requestAnimationFrame(() => {
+  if (store.getState().tables.length > 0) {
+    diagram.fitContentToViewport();
+  }
+});
 
 let schemaSignature = "";
 store.subscribe(() => {

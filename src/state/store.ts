@@ -255,6 +255,23 @@ export interface Store {
 export function createStore(initial: AppState, onPersist: (state: AppState) => void): Store {
   let state = initial;
   const listeners = new Set<Listener>();
+  let persistTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function schedulePersist(next: AppState, immediate: boolean) {
+    if (persistTimer !== null) {
+      clearTimeout(persistTimer);
+      persistTimer = null;
+    }
+    if (immediate) {
+      onPersist(next);
+      return;
+    }
+    // Debounce localStorage writes — position/zoom updates are frequent and stringify is costly.
+    persistTimer = setTimeout(() => {
+      persistTimer = null;
+      onPersist(state);
+    }, 250);
+  }
 
   return {
     getState: () => state,
@@ -266,7 +283,9 @@ export function createStore(initial: AppState, onPersist: (state: AppState) => v
       state = reducer(state, action);
       syncActiveProjectFromState(state);
       if (options?.persist !== false) {
-        onPersist(state);
+        const lightweight =
+          action.type === "UPDATE_TABLE_POSITION" || action.type === "SET_ZOOM";
+        schedulePersist(state, !lightweight);
       }
       listeners.forEach((listener) => listener());
     },

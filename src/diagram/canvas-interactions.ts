@@ -1,11 +1,13 @@
-import { clamp } from "../domain/ids.ts";
 import type { Store } from "../state/store.ts";
 import { getTableById } from "../state/store.ts";
-import { CANVAS_GUTTER, getCanvasBounds, estimateTableWidth } from "./layout.ts";
+import { applyTableCardTransform } from "./card-style.ts";
+import { BASE_PADDING, CANVAS_GUTTER } from "./constants.ts";
+import { estimateTableWidth, getTableHeight } from "./layout.ts";
 import type { DiagramController } from "./diagram-controller.ts";
 
 const EDGE_THRESHOLD = 48;
 const MAX_SCROLL_SPEED = 18;
+const SCENE_GROW_HEADROOM = 400;
 
 interface DragState {
   tableId: string;
@@ -16,6 +18,17 @@ interface DragState {
   pendingY: number;
   currentX: number;
   currentY: number;
+  tableWidth: number;
+  tableHeight: number;
+  viewportLeft: number;
+  viewportTop: number;
+  viewportRight: number;
+  viewportBottom: number;
+  scene: HTMLElement | null;
+  linesLayer: SVGSVGElement | null;
+  labelsLayer: SVGSVGElement | null;
+  sceneWidth: number;
+  sceneHeight: number;
 }
 
 interface PanState {
@@ -23,17 +36,15 @@ interface PanState {
   startY: number;
   startScrollLeft: number;
   startScrollTop: number;
-}
-
-function applyTableCardPosition(card: HTMLElement, x: number, y: number, zoom: number): void {
-  card.style.left = `${(x + CANVAS_GUTTER) * zoom}px`;
-  card.style.top = `${(y + CANVAS_GUTTER) * zoom}px`;
+  pendingX: number;
+  pendingY: number;
 }
 
 export function wireCanvasInteractions(
   store: Store,
   diagram: DiagramController,
   handlers: {
+    onEditTable: (tableId: string) => void;
     onEditField: (tableId: string, fieldId: string) => void;
     onEditRelation: (relationId: string) => void;
   },
@@ -42,54 +53,83 @@ export function wireCanvasInteractions(
   let dragState: DragState | null = null;
   let panState: PanState | null = null;
   let dragRafId: number | null = null;
+  let panRafId: number | null = null;
+
+  function cacheViewport(state: DragState): void {
+    const rect = diagramElement.getBoundingClientRect();
+    state.viewportLeft = rect.left;
+    state.viewportTop = rect.top;
+    state.viewportRight = rect.right;
+    state.viewportBottom = rect.bottom;
+  }
 
   function computeDragPosition(clientX: number, clientY: number): { x: number; y: number } | null {
     if (!dragState) return null;
-    const state = store.getState();
-    const table = getTableById(state, dragState.tableId);
-    if (!table) return null;
-
-    const viewportBounds = diagramElement.getBoundingClientRect();
-    const logicalX = (clientX - viewportBounds.left + diagramElement.scrollLeft) / state.zoom;
-    const logicalY = (clientY - viewportBounds.top + diagramElement.scrollTop) / state.zoom;
-    const tentativeX = logicalX - CANVAS_GUTTER - dragState.offsetX;
-    const tentativeY = logicalY - CANVAS_GUTTER - dragState.offsetY;
-
-    const getTableWidth = (t: typeof table) => estimateTableWidth(t);
-    const tablesForBounds = state.tables.map((t) =>
-      t.id === dragState!.tableId ? { ...t, x: tentativeX, y: tentativeY } : t,
-    );
-    const bounds = getCanvasBounds(
-      tablesForBounds,
-      state.zoom,
-      diagramElement.clientWidth || 900,
-      diagramElement.clientHeight || 650,
-      getTableWidth,
-    );
-    const tableWidth = getTableWidth(table);
-    const x = clamp(tentativeX, 8 - CANVAS_GUTTER, bounds.logicalWidth - tableWidth - CANVAS_GUTTER - 8);
-    const y = clamp(tentativeY, 8 - CANVAS_GUTTER, bounds.logicalHeight - 120 - CANVAS_GUTTER);
-    return { x, y };
+    const zoom = store.getState().zoom;
+    const logicalX = (clientX - dragState.viewportLeft + diagramElement.scrollLeft) / zoom;
+    const logicalY = (clientY - dragState.viewportTop + diagramElement.scrollTop) / zoom;
+    // Keep tables inside the scrollable scene (never negative logical coords).
+    return {
+      x: Math.max(8, logicalX - CANVAS_GUTTER - dragState.offsetX),
+      y: Math.max(8, logicalY - CANVAS_GUTTER - dragState.offsetY),
+    };
   }
 
-  function applyEdgeAutoScroll(clientX: number, clientY: number): void {
-    const rect = diagramElement.getBoundingClientRect();
+  function expandSceneForDrag(x: number, y: number): void {
+    if (!dragState?.scene) return;
+    const zoom = store.getState().zoom;
+    const neededWidth = Math.ceil((x + dragState.tableWidth + BASE_PADDING + CANVAS_GUTTER * 2) * zoom) + SCENE_GROW_HEADROOM;
+    const neededHeight = Math.ceil((y + dragState.tableHeight + BASE_PADDING + CANVAS_GUTTER * 2) * zoom) + SCENE_GROW_HEADROOM;
 
-    if (clientX < rect.left + EDGE_THRESHOLD) {
-      const intensity = 1 - Math.max(0, (clientX - rect.left) / EDGE_THRESHOLD);
+    if (neededWidth > dragState.sceneWidth) {
+      dragState.sceneWidth = neededWidth;
+      dragState.scene.style.width = `${neededWidth}px`;
+      dragState.linesLayer?.setAttribute("width", String(neededWidth));
+      dragState.labelsLayer?.setAttribute("width", String(neededWidth));
+    }
+    if (neededHeight > dragState.sceneHeight) {
+      dragState.sceneHeight = neededHeight;
+      dragState.scene.style.height = `${neededHeight}px`;
+      dragState.linesLayer?.setAttribute("height", String(neededHeight));
+      dragState.labelsLayer?.setAttribute("height", String(neededHeight));
+    }
+  }
+
+  function isNearEdge(clientX: number, clientY: number): boolean {
+    if (!dragState) return false;
+    return (
+      clientX < dragState.viewportLeft + EDGE_THRESHOLD ||
+      clientX > dragState.viewportRight - EDGE_THRESHOLD ||
+      clientY < dragState.viewportTop + EDGE_THRESHOLD ||
+      clientY > dragState.viewportBottom - EDGE_THRESHOLD
+    );
+  }
+
+  function applyEdgeAutoScroll(clientX: number, clientY: number): boolean {
+    if (!dragState) return false;
+    let scrolled = false;
+
+    if (clientX < dragState.viewportLeft + EDGE_THRESHOLD) {
+      const intensity = 1 - Math.max(0, (clientX - dragState.viewportLeft) / EDGE_THRESHOLD);
       diagramElement.scrollLeft -= MAX_SCROLL_SPEED * intensity;
-    } else if (clientX > rect.right - EDGE_THRESHOLD) {
-      const intensity = 1 - Math.max(0, (rect.right - clientX) / EDGE_THRESHOLD);
+      scrolled = true;
+    } else if (clientX > dragState.viewportRight - EDGE_THRESHOLD) {
+      const intensity = 1 - Math.max(0, (dragState.viewportRight - clientX) / EDGE_THRESHOLD);
       diagramElement.scrollLeft += MAX_SCROLL_SPEED * intensity;
+      scrolled = true;
     }
 
-    if (clientY < rect.top + EDGE_THRESHOLD) {
-      const intensity = 1 - Math.max(0, (clientY - rect.top) / EDGE_THRESHOLD);
+    if (clientY < dragState.viewportTop + EDGE_THRESHOLD) {
+      const intensity = 1 - Math.max(0, (clientY - dragState.viewportTop) / EDGE_THRESHOLD);
       diagramElement.scrollTop -= MAX_SCROLL_SPEED * intensity;
-    } else if (clientY > rect.bottom - EDGE_THRESHOLD) {
-      const intensity = 1 - Math.max(0, (rect.bottom - clientY) / EDGE_THRESHOLD);
+      scrolled = true;
+    } else if (clientY > dragState.viewportBottom - EDGE_THRESHOLD) {
+      const intensity = 1 - Math.max(0, (dragState.viewportBottom - clientY) / EDGE_THRESHOLD);
       diagramElement.scrollTop += MAX_SCROLL_SPEED * intensity;
+      scrolled = true;
     }
+
+    return scrolled;
   }
 
   function dragTick(): void {
@@ -98,7 +138,8 @@ export function wireCanvasInteractions(
       return;
     }
 
-    applyEdgeAutoScroll(dragState.pendingX, dragState.pendingY);
+    const nearEdge = isNearEdge(dragState.pendingX, dragState.pendingY);
+    const scrolled = nearEdge ? applyEdgeAutoScroll(dragState.pendingX, dragState.pendingY) : false;
 
     const position = computeDragPosition(dragState.pendingX, dragState.pendingY);
     if (!position) {
@@ -106,17 +147,24 @@ export function wireCanvasInteractions(
       return;
     }
 
-    dragState.currentX = position.x;
-    dragState.currentY = position.y;
-    applyTableCardPosition(dragState.card, position.x, position.y, store.getState().zoom);
+    if (position.x !== dragState.currentX || position.y !== dragState.currentY) {
+      dragState.currentX = position.x;
+      dragState.currentY = position.y;
+      applyTableCardTransform(dragState.card, position.x, position.y, store.getState().zoom);
+      expandSceneForDrag(position.x, position.y);
+    }
 
-    dragRafId = requestAnimationFrame(dragTick);
+    if (nearEdge || scrolled) {
+      dragRafId = requestAnimationFrame(dragTick);
+      return;
+    }
+
+    dragRafId = null;
   }
 
   function scheduleDragTick(): void {
-    if (dragRafId === null) {
-      dragRafId = requestAnimationFrame(dragTick);
-    }
+    if (!dragState || dragRafId !== null) return;
+    dragRafId = requestAnimationFrame(dragTick);
   }
 
   function stopDragTick(): void {
@@ -126,11 +174,32 @@ export function wireCanvasInteractions(
     }
   }
 
+  function panTick(): void {
+    panRafId = null;
+    if (!panState) return;
+    diagramElement.scrollLeft = panState.startScrollLeft - (panState.pendingX - panState.startX);
+    diagramElement.scrollTop = panState.startScrollTop - (panState.pendingY - panState.startY);
+  }
+
+  function schedulePanTick(): void {
+    if (panRafId === null) {
+      panRafId = requestAnimationFrame(panTick);
+    }
+  }
+
+  function stopPanTick(): void {
+    if (panRafId !== null) {
+      cancelAnimationFrame(panRafId);
+      panRafId = null;
+    }
+  }
+
   function endTableDrag(): void {
     if (!dragState) return;
 
     stopDragTick();
     dragState.card.classList.remove("is-dragging");
+    dragState.card.style.willChange = "";
     diagramElement.classList.remove("is-table-dragging");
     diagram.endTableDrag();
 
@@ -174,13 +243,7 @@ export function wireCanvasInteractions(
     const target = event.target as HTMLElement;
     const action = target.dataset.action;
     if (action === "rename-table" && target.dataset.tableId) {
-      const table = getTableById(store.getState(), target.dataset.tableId);
-      if (!table) return;
-      const value = window.prompt("Nuevo nombre de tabla", table.name);
-      if (value === null) return;
-      const newName = value.trim().replace(/\s+/g, "_").toLowerCase();
-      if (!newName) return;
-      store.dispatch({ type: "RENAME_TABLE", tableId: target.dataset.tableId, name: newName });
+      handlers.onEditTable(target.dataset.tableId);
       return;
     }
     if (action === "delete-table" && target.dataset.tableId) {
@@ -221,12 +284,18 @@ export function wireCanvasInteractions(
       const zoom = store.getState().zoom;
       const offsetX = (event.clientX - bounds.left) / zoom;
       const offsetY = (event.clientY - bounds.top) / zoom;
+      const measuredWidth = tableCard.offsetWidth;
+      const measuredHeight = tableCard.offsetHeight;
+      const scene = diagramElement.querySelector<HTMLElement>("#diagram-scene");
+      const linesLayer = diagramElement.querySelector<SVGSVGElement>(".relation-lines-layer");
+      const labelsLayer = diagramElement.querySelector<SVGSVGElement>(".relation-labels-layer");
 
       diagram.beginTableDrag(tableId);
       tableCard.classList.add("is-dragging");
+      tableCard.style.willChange = "transform";
       diagramElement.classList.add("is-table-dragging");
 
-      dragState = {
+      const next: DragState = {
         tableId,
         card: tableCard,
         offsetX,
@@ -235,7 +304,21 @@ export function wireCanvasInteractions(
         pendingY: event.clientY,
         currentX: table.x,
         currentY: table.y,
+        tableWidth: measuredWidth || estimateTableWidth(table),
+        tableHeight: measuredHeight || getTableHeight(table),
+        viewportLeft: 0,
+        viewportTop: 0,
+        viewportRight: 0,
+        viewportBottom: 0,
+        scene,
+        linesLayer,
+        labelsLayer,
+        sceneWidth: scene?.offsetWidth ?? 0,
+        sceneHeight: scene?.offsetHeight ?? 0,
       };
+      cacheViewport(next);
+      dragState = next;
+      expandSceneForDrag(table.x, table.y);
       scheduleDragTick();
       return;
     }
@@ -245,6 +328,8 @@ export function wireCanvasInteractions(
       startY: event.clientY,
       startScrollLeft: diagramElement.scrollLeft,
       startScrollTop: diagramElement.scrollTop,
+      pendingX: event.clientX,
+      pendingY: event.clientY,
     };
     diagramElement.classList.add("is-panning");
   });
@@ -258,10 +343,9 @@ export function wireCanvasInteractions(
     }
 
     if (panState) {
-      const deltaX = event.clientX - panState.startX;
-      const deltaY = event.clientY - panState.startY;
-      diagramElement.scrollLeft = panState.startScrollLeft - deltaX;
-      diagramElement.scrollTop = panState.startScrollTop - deltaY;
+      panState.pendingX = event.clientX;
+      panState.pendingY = event.clientY;
+      schedulePanTick();
     }
   });
 
@@ -269,10 +353,17 @@ export function wireCanvasInteractions(
     if (dragState) {
       endTableDrag();
     }
+    stopPanTick();
     panState = null;
     diagramElement.classList.remove("is-panning");
   });
 
-  window.addEventListener("resize", () => diagram.render());
-  window.visualViewport?.addEventListener("resize", () => diagram.render());
+  window.addEventListener("resize", () => {
+    if (dragState) cacheViewport(dragState);
+    diagram.render();
+  });
+  window.visualViewport?.addEventListener("resize", () => {
+    if (dragState) cacheViewport(dragState);
+    diagram.render();
+  });
 }

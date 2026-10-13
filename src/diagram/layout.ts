@@ -7,6 +7,7 @@ import {
   CANVAS_GUTTER,
   TABLE_HEADER_HEIGHT,
   TABLE_MIN_WIDTH,
+  TABLE_ORIGIN_PADDING,
   TABLE_ROW_HEIGHT,
 } from "./constants.ts";
 
@@ -64,8 +65,17 @@ export function getCanvasBounds(
   viewportHeight: number,
   getTableWidth: TableWidthResolver,
 ) {
-  const maxRight = Math.max(700, ...tables.map((table) => table.x + getTableWidth(table) + BASE_PADDING)) + CANVAS_GUTTER * 2;
-  const maxBottom = Math.max(500, ...tables.map((table) => table.y + getTableHeight(table) + BASE_PADDING)) + CANVAS_GUTTER * 2;
+  const contentRight =
+    tables.length === 0
+      ? 700
+      : Math.max(...tables.map((table) => table.x + getTableWidth(table) + BASE_PADDING));
+  const contentBottom =
+    tables.length === 0
+      ? 500
+      : Math.max(...tables.map((table) => table.y + getTableHeight(table) + BASE_PADDING));
+  const maxRight = Math.max(700, contentRight) + CANVAS_GUTTER * 2;
+  const maxBottom = Math.max(500, contentBottom) + CANVAS_GUTTER * 2;
+  // Match content bounds: gutter on both left/top and right/bottom.
   const minLogicalWidth = viewportWidth / zoom + CANVAS_GUTTER * 2;
   const minLogicalHeight = viewportHeight / zoom + CANVAS_GUTTER * 2;
   const logicalWidth = Math.max(maxRight, minLogicalWidth);
@@ -98,6 +108,39 @@ export function ensureTablePositions(tables: Table[]): Table[] {
       y: 24 + Math.floor(index / 2) * 280,
     };
   });
+}
+
+/**
+ * Shift all tables so none sit at negative (or near-zero) coords.
+ * Needed after reducing CANVAS_GUTTER: old drags allowed x/y down to ~-792,
+ * which now render outside the scrollable scene.
+ */
+export function normalizeTablesOrigin(tables: Table[]): { tables: Table[]; shifted: boolean } {
+  if (tables.length === 0) return { tables, shifted: false };
+
+  const withCoords = tables.map((table, index) => ({
+    ...table,
+    x: typeof table.x === "number" ? table.x : 24 + (index % 2) * 400,
+    y: typeof table.y === "number" ? table.y : 24 + Math.floor(index / 2) * 280,
+  }));
+
+  const minX = Math.min(...withCoords.map((table) => table.x));
+  const minY = Math.min(...withCoords.map((table) => table.y));
+  const shiftX = minX < TABLE_ORIGIN_PADDING ? TABLE_ORIGIN_PADDING - minX : 0;
+  const shiftY = minY < TABLE_ORIGIN_PADDING ? TABLE_ORIGIN_PADDING - minY : 0;
+
+  if (shiftX === 0 && shiftY === 0) {
+    return { tables: withCoords, shifted: false };
+  }
+
+  return {
+    tables: withCoords.map((table) => ({
+      ...table,
+      x: table.x + shiftX,
+      y: table.y + shiftY,
+    })),
+    shifted: true,
+  };
 }
 
 export function chooseAnchors(

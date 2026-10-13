@@ -30,7 +30,9 @@ interface RouteContext {
 }
 
 const ROUTE_PADDING = 20;
-const MAX_REPAIR_ITERATIONS = 48;
+const MAX_REPAIR_ITERATIONS = 12;
+const MAX_ASTAR_NODES = 72;
+const LANE_CANDIDATE_STEPS = 10;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -169,14 +171,14 @@ function computeSafeExitPoint(
   laneOffset: number,
 ): Point {
   const candidates: FieldAnchor[] = [anchor];
-  for (let step = 1; step <= 12; step++) {
+  for (let step = 1; step <= 6; step++) {
     const delta = step * (14 + laneOffset * 2);
     candidates.push(slideAnchorAlongEdge(anchor, table, delta));
     candidates.push(slideAnchorAlongEdge(anchor, table, -delta));
   }
 
   for (const candidate of candidates) {
-    for (let currentClearance = clearance; currentClearance >= 8; currentClearance -= 4) {
+    for (let currentClearance = clearance; currentClearance >= 8; currentClearance -= 8) {
       const exit = extendAnchor(candidate, currentClearance);
       const connector = [{ x: anchor.x, y: anchor.y }, exit];
       if (Math.abs(candidate.x - anchor.x) > 0.001 || Math.abs(candidate.y - anchor.y) > 0.001) {
@@ -230,7 +232,7 @@ function simplifyOrthogonalPath(points: Point[]): Point[] {
 
 function laneCandidates(preferred: number, laneOffset: number, step = 18): number[] {
   const values = [preferred];
-  for (let i = 1; i <= 32; i++) {
+  for (let i = 1; i <= LANE_CANDIDATE_STEPS; i++) {
     const delta = i * (step + laneOffset * 2);
     values.push(preferred - delta, preferred + delta);
   }
@@ -290,6 +292,51 @@ function canConnectOrthogonal(a: Point, b: Point, ctx: RouteContext): boolean {
   return !segmentHitsObstacle(a.x, a.y, b.x, b.y, ctx);
 }
 
+function coordKey(value: number): string {
+  return value.toFixed(2);
+}
+
+function buildOrthogonalNeighborGraph(
+  nodes: Point[],
+  ctx: RouteContext,
+): Map<number, Array<{ to: number; cost: number }>> {
+  const neighbors = new Map<number, Array<{ to: number; cost: number }>>();
+  for (let i = 0; i < nodes.length; i++) neighbors.set(i, []);
+
+  const byX = new Map<string, number[]>();
+  const byY = new Map<string, number[]>();
+
+  for (let i = 0; i < nodes.length; i++) {
+    const xKey = coordKey(nodes[i].x);
+    const yKey = coordKey(nodes[i].y);
+    const xGroup = byX.get(xKey);
+    if (xGroup) xGroup.push(i);
+    else byX.set(xKey, [i]);
+    const yGroup = byY.get(yKey);
+    if (yGroup) yGroup.push(i);
+    else byY.set(yKey, [i]);
+  }
+
+  const linkGroups = (groups: Map<string, number[]>) => {
+    for (const indexes of groups.values()) {
+      for (let i = 0; i < indexes.length; i++) {
+        for (let j = i + 1; j < indexes.length; j++) {
+          const a = indexes[i];
+          const b = indexes[j];
+          if (!canConnectOrthogonal(nodes[a], nodes[b], ctx)) continue;
+          const cost = manhattanDistance(nodes[a], nodes[b]);
+          neighbors.get(a)!.push({ to: b, cost });
+          neighbors.get(b)!.push({ to: a, cost });
+        }
+      }
+    }
+  };
+
+  linkGroups(byX);
+  linkGroups(byY);
+  return neighbors;
+}
+
 function collectTablePerimeterNodes(table: RouteTable, step = 28): Point[] {
   const points: Point[] = [];
   for (let y = table.y; y <= table.y + table.height; y += step) {
@@ -312,17 +359,15 @@ function collectRouteNodes(
   const margin = 8 + laneOffset * 4;
   const points: Point[] = [exit, entry];
 
+  // Prefer corner + projected nodes; skip dense perimeter sampling when crowded.
+  const usePerimeter = ctx.obstacles.length <= 8;
+
   for (const rect of ctx.obstacles) {
     points.push(
       { x: rect.left - margin, y: rect.top - margin },
       { x: rect.right + margin, y: rect.top - margin },
       { x: rect.left - margin, y: rect.bottom + margin },
       { x: rect.right + margin, y: rect.bottom + margin },
-    );
-  }
-
-  for (const rect of ctx.obstacles) {
-    points.push(
       { x: exit.x, y: rect.top - margin },
       { x: exit.x, y: rect.bottom + margin },
       { x: rect.left - margin, y: exit.y },
@@ -334,11 +379,24 @@ function collectRouteNodes(
     );
   }
 
-  for (const table of tables.filter((item) => endpointIds.includes(item.id))) {
-    points.push(...collectTablePerimeterNodes(table));
+  if (usePerimeter) {
+    for (const table of tables) {
+      if (!endpointIds.includes(table.id)) continue;
+      points.push(...collectTablePerimeterNodes(table, 40));
+    }
   }
 
-  return uniquePoints(points);
+  const unique = uniquePoints(points);
+  if (unique.length <= MAX_ASTAR_NODES) return unique;
+
+  // Keep endpoints and evenly sample the rest to bound A* graph size.
+  const kept = [unique[0], unique[1]];
+  const remaining = unique.slice(2);
+  const step = Math.ceil(remaining.length / (MAX_ASTAR_NODES - 2));
+  for (let i = 0; i < remaining.length; i += step) {
+    kept.push(remaining[i]);
+  }
+  return uniquePoints(kept).slice(0, MAX_ASTAR_NODES);
 }
 
 function astarOrthogonalRoute(
@@ -354,19 +412,8 @@ function astarOrthogonalRoute(
   const endIndex = nodes.findIndex((node) => manhattanDistance(node, entry) < 0.001);
   if (startIndex < 0 || endIndex < 0) return null;
 
-  const neighbors = new Map<number, Array<{ to: number; cost: number }>>();
-  for (let i = 0; i < nodes.length; i++) {
-    neighbors.set(i, []);
-  }
-
-  for (let i = 0; i < nodes.length; i++) {
-    for (let j = i + 1; j < nodes.length; j++) {
-      if (!canConnectOrthogonal(nodes[i], nodes[j], ctx)) continue;
-      const cost = manhattanDistance(nodes[i], nodes[j]);
-      neighbors.get(i)!.push({ to: j, cost });
-      neighbors.get(j)!.push({ to: i, cost });
-    }
-  }
+  // Only connect nodes that share an axis — avoids O(M²) checks of diagonal pairs.
+  const neighbors = buildOrthogonalNeighborGraph(nodes, ctx);
 
   const open = new Set<number>([startIndex]);
   const cameFrom = new Map<number, number>();
@@ -459,6 +506,11 @@ function findBestOrthogonalRoute(
   for (const midX of midXCandidates) consider(buildVHVRoute(exit, entry, midX));
 
   if (bestPath) return bestPath;
+
+  // With many obstacles A* gets expensive; fall back to cheap repair first.
+  if (ctx.obstacles.length > 14) {
+    return repairOrthogonalPath([exit, entry], tables, endpointIds, ctx, laneOffset);
+  }
 
   const astarPath = astarOrthogonalRoute(exit, entry, tables, endpointIds, ctx, laneOffset);
   if (astarPath) return astarPath;
@@ -639,6 +691,34 @@ function appendEntryConnector(points: Point[], anchor: FieldAnchor, entry: Point
   pushPoint(points, { x: anchor.x, y: anchor.y });
 }
 
+function buildFastRoutePoints(from: FieldAnchor, to: FieldAnchor, laneOffset: number): Point[] {
+  const clearance = 24 + laneOffset * 10;
+  const exit = extendAnchor(from, clearance);
+  const entry = extendAnchor(to, clearance);
+  const midY = (exit.y + entry.y) / 2 + laneOffset * 14;
+  const midX = (exit.x + entry.x) / 2 + laneOffset * 14;
+
+  if (from.side === "left" || from.side === "right") {
+    return simplifyOrthogonalPath([
+      { x: from.x, y: from.y },
+      exit,
+      { x: exit.x, y: midY },
+      { x: entry.x, y: midY },
+      entry,
+      { x: to.x, y: to.y },
+    ]);
+  }
+
+  return simplifyOrthogonalPath([
+    { x: from.x, y: from.y },
+    exit,
+    { x: midX, y: exit.y },
+    { x: midX, y: entry.y },
+    entry,
+    { x: to.x, y: to.y },
+  ]);
+}
+
 function buildRoutePoints(
   from: FieldAnchor,
   to: FieldAnchor,
@@ -646,7 +726,12 @@ function buildRoutePoints(
   fromTableId: string,
   toTableId: string,
   laneOffset: number,
+  quality: "fast" | "full" = "full",
 ): Point[] {
+  if (quality === "fast") {
+    return buildFastRoutePoints(from, to, laneOffset);
+  }
+
   const ctx = buildRouteContext(tables, fromTableId, toTableId);
   const fromTable = getTableById(tables, fromTableId);
   const toTable = getTableById(tables, toTableId);
@@ -697,8 +782,9 @@ export function buildRoutedRelationPath(
   laneOffset: number,
   canvasGutter: number,
   zoom: number,
+  quality: "fast" | "full" = "full",
 ): { path: string; pathPoints: Array<{ x: number; y: number }>; labelPoint: { x: number; y: number } } {
-  const points = buildRoutePoints(from, to, tables, fromTableId, toTableId, laneOffset);
+  const points = buildRoutePoints(from, to, tables, fromTableId, toTableId, laneOffset, quality);
 
   const scaled = points.map((point) => ({
     x: (point.x + canvasGutter) * zoom,

@@ -1,6 +1,7 @@
 import { createDefaultProject, DEFAULT_RELATIONS } from "../domain/defaults.ts";
 import { normalizeTables } from "../domain/field.ts";
 import { normalizeRelations } from "../domain/relation.ts";
+import { normalizeTablesOrigin } from "../diagram/layout.ts";
 import type { AppState, PersistedState, Project } from "../domain/types.ts";
 
 export const STORAGE_KEY = "dbdesigner.state.v1";
@@ -32,32 +33,49 @@ export function parseStoredState(raw: string | null): PersistedState | null {
   }
 }
 
-function normalizeProjects(projects: Project[]): Project[] {
-  return projects.map((project) => ({
-    ...project,
-    tables: normalizeTables(project.tables),
-    relations: normalizeRelations(project.relations ?? []),
-    zoom: typeof project.zoom === "number" ? project.zoom : 1,
-  }));
+function normalizeProjects(projects: Project[]): { projects: Project[]; originShifted: boolean } {
+  let originShifted = false;
+  const normalized = projects.map((project) => {
+    const tables = normalizeTables(project.tables);
+    const { tables: originTables, shifted } = normalizeTablesOrigin(tables);
+    if (shifted) originShifted = true;
+    return {
+      ...project,
+      tables: originTables,
+      relations: normalizeRelations(project.relations ?? []),
+      zoom: typeof project.zoom === "number" ? project.zoom : 1,
+    };
+  });
+  return { projects: normalized, originShifted };
 }
 
 export function loadInitialState(): AppState {
   const storedState = parseStoredState(window.localStorage.getItem(STORAGE_KEY));
   const defaultProject = createDefaultProject(normalizeTables);
-  const initialProjects = storedState?.projects?.length ? normalizeProjects(storedState.projects) : [defaultProject];
+  const loaded = storedState?.projects?.length
+    ? normalizeProjects(storedState.projects)
+    : { projects: [{ ...defaultProject, tables: normalizeTablesOrigin(defaultProject.tables).tables }], originShifted: false };
+  const initialProjects = loaded.projects;
   const initialActiveProjectId =
     storedState?.activeProjectId && initialProjects.some((project) => project.id === storedState.activeProjectId)
       ? storedState.activeProjectId
       : initialProjects[0].id;
   const activeProject = initialProjects.find((project) => project.id === initialActiveProjectId) ?? initialProjects[0];
 
-  return {
+  const state: AppState = {
     projects: initialProjects,
     activeProjectId: initialActiveProjectId,
     tables: activeProject.tables,
     relations: activeProject.relations,
     zoom: activeProject.zoom,
   };
+
+  // Persist corrected origins so off-canvas tables don't come back after reload.
+  if (loaded.originShifted) {
+    saveState(state);
+  }
+
+  return state;
 }
 
 export function saveState(state: AppState): void {
