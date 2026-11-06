@@ -1,12 +1,12 @@
-import { CANVAS_GUTTER } from "./constants.ts";
-
-/** Compositor-friendly card placement: translate + scale, no left/top layout thrash. */
-export function tableCardTransform(x: number, y: number, zoom: number): string {
-  const px = (x + CANVAS_GUTTER) * zoom;
-  const py = (y + CANVAS_GUTTER) * zoom;
-  return `translate3d(${px.toFixed(2)}px, ${py.toFixed(2)}px, 0) scale(${zoom})`;
+/**
+ * Posicion de una tarjeta dentro del mundo del canvas. El zoom lo aplica el contenedor
+ * del mundo con un unico transform, asi que aqui solo hay traslacion en coordenadas logicas.
+ * Se usa translate 2D (no 3D) para que el navegador re-rasterice el texto nitido al cambiar el zoom.
+ */
+export function tableCardTransform(x: number, y: number): string {
+  return `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
 }
 
-export function applyTableCardTransform(card: HTMLElement, x: number, y: number, zoom: number): void {
-  card.style.transform = tableCardTransform(x, y, zoom);
+export function applyTableCardTransform(card: HTMLElement, x: number, y: number): void {
+  card.style.transform = tableCardTransform(x, y);
 }

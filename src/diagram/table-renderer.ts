@@ -1,9 +1,14 @@
 import type { Field, Table } from "../domain/types.ts";
 import { tableCardTransform } from "./card-style.ts";
-import { getFieldMetaLabel } from "./layout.ts";
-import type { TableWidthResolver } from "./layout.ts";
+import { getFieldMetaLabel, getTableHeight } from "./layout.ts";
 
-export function buildTableMarkup(tables: Table[], zoom: number): string {
+/** Etiqueta corta para el nivel de detalle compacto: tipo + claves. */
+function shortFieldMeta(field: Field): string {
+  const flags = [field.isPrimary ? "PK" : "", field.isUnique && !field.isPrimary ? "UQ" : ""].filter(Boolean);
+  return [field.type, ...flags].join(" · ");
+}
+
+export function buildTableMarkup(tables: Table[]): string {
   return tables
     .map((table) => {
       const fields = table.fields
@@ -18,7 +23,8 @@ export function buildTableMarkup(tables: Table[], zoom: number): string {
                 <span class="field-name">${field.name}</span>
               </div>
               <div class="field-right">
-                <small>${getFieldMetaLabel(field)}</small>
+                <small class="field-meta">${getFieldMetaLabel(field)}</small>
+                <small class="field-meta-short">${shortFieldMeta(field)}</small>
                 <button type="button" class="neutral-btn table-action-btn" data-action="edit-field" data-table-id="${table.id}" data-field-id="${field.id}">Editar</button>
                 <button type="button" class="danger-btn table-action-btn" data-action="delete-field" data-table-id="${table.id}" data-field-id="${field.id}">X</button>
               </div>
@@ -26,10 +32,16 @@ export function buildTableMarkup(tables: Table[], zoom: number): string {
           `,
         )
         .join("");
+      const fieldCount = `${table.fields.length} campo${table.fields.length === 1 ? "" : "s"}`;
+      // En vista general los nombres largos pueden partirse en varias lineas por los "_".
+      const breakableName = table.name.replace(/_/g, "_<wbr>");
       return `
-        <article class="table-card" data-table-id="${table.id}" style="transform:${tableCardTransform(table.x, table.y, zoom)}">
+        <article class="table-card" data-table-id="${table.id}" style="transform:${tableCardTransform(table.x, table.y)};height:${getTableHeight(table)}px">
           <div class="table-card-header">
-            <h3>${table.name}</h3>
+            <div class="table-card-title">
+              <h3 title="${table.name}">${breakableName}</h3>
+              <span class="table-card-count">${fieldCount}</span>
+            </div>
             <div class="table-actions">
               <button type="button" class="neutral-btn table-action-btn" data-action="rename-table" data-table-id="${table.id}">Editar</button>
               <button type="button" class="danger-btn table-action-btn" data-action="delete-table" data-table-id="${table.id}">Eliminar</button>
@@ -41,5 +53,3 @@ export function buildTableMarkup(tables: Table[], zoom: number): string {
     })
     .join("");
 }
-
-export type { TableWidthResolver };

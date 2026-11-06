@@ -1,13 +1,16 @@
 import { wireCanvasInteractions } from "./diagram/canvas-interactions.ts";
 import { createDiagramController } from "./diagram/diagram-controller.ts";
+import { wireZoomInput } from "./ui/zoom-input.ts";
 import { loadInitialState, saveState } from "./persistence/storage.ts";
 import { exportDiagramAsPng } from "./services/png-export.ts";
 import { createStore } from "./state/store.ts";
 import { wireTableForm, wireFieldForm, wireRelationForm } from "./ui/forms/forms.ts";
 import { wireFieldEditModal } from "./ui/modals/field-edit-modal.ts";
 import { wireRelationEditModal } from "./ui/modals/relation-edit-modal.ts";
-import { wireTableEditModal } from "./ui/modals/table-edit-modal.ts";
 import { wireSqlModal } from "./ui/modals/sql-modal.ts";
+import { wireSqlImportModal } from "./ui/modals/sql-import-modal.ts";
+import { wireTableEditorModal } from "./ui/modals/table-editor-modal.ts";
+import { showToast } from "./ui/toast.ts";
 import { wireProjectPanel } from "./ui/project-panel.ts";
 import { createSelectControllers } from "./ui/selects.ts";
 import { mountAppShell } from "./ui/shell.ts";
@@ -29,65 +32,75 @@ controlsPanel?.addEventListener(
   { passive: true },
 );
 
-const store = createStore(loadInitialState(), saveState);
+let lastSaveErrorAt = 0;
+function persistState(state: Parameters<typeof saveState>[0]) {
+  try {
+    saveState(state);
+  } catch {
+    // Normalmente QuotaExceededError: avisar sin saturar (como mucho cada 10 s).
+    const now = Date.now();
+    if (now - lastSaveErrorAt > 10_000) {
+      lastSaveErrorAt = now;
+      showToast("No se pudieron guardar los cambios en el navegador (almacenamiento lleno?). Exporta el proyecto a JSON.", "error");
+    }
+  }
+}
+
+const store = createStore(loadInitialState(), persistState);
 const selects = createSelectControllers(store);
 
 const diagramElement = document.querySelector<HTMLDivElement>("#diagram");
-const zoomLabel = document.querySelector<HTMLSpanElement>("#zoom-label");
+const zoomInput = document.querySelector<HTMLInputElement>("#zoom-input");
 const zoomOutButton = document.querySelector<HTMLButtonElement>("#zoom-out-btn");
 const zoomInButton = document.querySelector<HTMLButtonElement>("#zoom-in-btn");
 const fitButton = document.querySelector<HTMLButtonElement>("#fit-btn");
 const exportButton = document.querySelector<HTMLButtonElement>("#export-btn");
 
-if (!diagramElement || !zoomLabel || !zoomOutButton || !zoomInButton || !fitButton || !exportButton) {
+if (!diagramElement || !zoomInput || !zoomOutButton || !zoomInButton || !fitButton || !exportButton) {
   throw new Error("No se encontraron elementos del diagrama");
 }
 
-const diagram = createDiagramController(store, diagramElement, zoomLabel);
+const diagram = createDiagramController(store, diagramElement, zoomInput);
 const { openFieldEditModal } = wireFieldEditModal(store, selects);
 const { openRelationEditModal } = wireRelationEditModal(store);
-const { openTableEditModal } = wireTableEditModal(store, {
-  onEditRelation: openRelationEditModal,
-});
 
 wireThemeToggles();
 wireProjectPanel(store, selects);
-wireTableForm(store);
+const { openTableCreator, openTableEditor } = wireTableEditorModal(store, diagram);
+wireTableForm(openTableCreator);
+document.querySelector<HTMLButtonElement>("#new-table-btn")?.addEventListener("click", () => openTableCreator());
+// Tecla N (fuera de campos de texto y sin modales abiertos): nueva tabla.
+window.addEventListener("keydown", (event) => {
+  if (event.key.toLowerCase() !== "n" || event.ctrlKey || event.metaKey || event.altKey) return;
+  const target = event.target as HTMLElement | null;
+  if (target && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))) return;
+  if (document.querySelector(".modal:not(.hidden)")) return;
+  event.preventDefault();
+  openTableCreator();
+});
 wireFieldForm(store, selects);
 wireRelationForm(store, selects);
 wireSqlModal(store);
+wireSqlImportModal(store, { onImported: () => diagram.fitContentToViewport(true) });
 wireCanvasInteractions(store, diagram, {
-  onEditTable: openTableEditModal,
+  onEditTable: openTableEditor,
   onEditField: openFieldEditModal,
   onEditRelation: openRelationEditModal,
+  onCreateTableAt: (point) => openTableCreator({ at: point }),
 });
 wireDiagramTableSearch(store, diagram);
 
-zoomOutButton.addEventListener("click", () => diagram.setZoom(store.getState().zoom - 0.1));
-zoomInButton.addEventListener("click", () => diagram.setZoom(store.getState().zoom + 0.1));
-fitButton.addEventListener("click", () => diagram.fitContentToViewport());
-exportButton.addEventListener("click", () => void exportDiagramAsPng(diagramElement));
-
-diagramElement.addEventListener(
-  "wheel",
-  (event) => {
-    if (!event.ctrlKey) return;
-    event.preventDefault();
-    const direction = event.deltaY > 0 ? -0.08 : 0.08;
-    diagram.setZoom(store.getState().zoom + direction, event.clientX, event.clientY);
-  },
-  { passive: false },
-);
+zoomOutButton.addEventListener("click", () => diagram.zoomBy(1 / 1.25));
+zoomInButton.addEventListener("click", () => diagram.zoomBy(1.25));
+fitButton.addEventListener("click", () => diagram.fitContentToViewport(true));
+wireZoomInput(zoomInput, diagram);
+exportButton.addEventListener("click", () => void exportDiagramAsPng(diagram));
 
 selects.refreshProjectSelect();
 selects.refreshSelects();
 diagram.render();
-// After gutter/origin fixes, center content so no table stays off-screen.
-requestAnimationFrame(() => {
-  if (store.getState().tables.length > 0) {
-    diagram.fitContentToViewport();
-  }
-});
+// Al abrir, encuadrar todo el proyecto (las tablas ya estan medidas tras el primer render).
+diagram.fitContentToViewport();
 
 let schemaSignature = "";
 store.subscribe(() => {

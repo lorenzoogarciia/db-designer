@@ -164,7 +164,10 @@ describe("generateSql", () => {
       relations: [],
     };
     const sql = generateSql(withDefault, "mysql");
-    expect(sql).toContain("`title` TEXT NULL DEFAULT 'sin_titulo'");
+    // MySQL 8 solo admite DEFAULT en TEXT como expresion entre parentesis.
+    expect(sql).toContain("`title` TEXT NULL DEFAULT ('sin_titulo')");
+    expect(generateSql(withDefault, "postgresql")).toContain(`"title" TEXT NULL DEFAULT 'sin_titulo'`);
+    expect(generateSql(withDefault, "sqlserver")).toContain("[title] NVARCHAR(MAX) NULL DEFAULT N'sin_titulo'");
   });
 
   it("filters tables and relations by selected ids", () => {

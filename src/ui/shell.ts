@@ -20,6 +20,7 @@ export function mountAppShell(app: HTMLElement): void {
             <button id="project-rename-btn" type="button">Renombrar</button>
             <button id="project-export-json-btn" type="button">Exportar JSON</button>
             <button id="project-import-json-btn" type="button">Importar JSON</button>
+            <button id="project-import-sql-btn" type="button">Importar SQL</button>
           </div>
           <input id="project-import-json-input" type="file" accept=".json,application/json" hidden />
           <button id="project-delete-btn" type="button" class="danger-btn">Eliminar proyecto</button>
@@ -30,8 +31,8 @@ export function mountAppShell(app: HTMLElement): void {
         <h2>Nueva tabla</h2>
         <form id="table-form" class="form-grid">
           <label for="table-name">Nombre</label>
-          <input id="table-name" name="tableName" placeholder="orders" required />
-          <button type="submit">Agregar tabla</button>
+          <input id="table-name" name="tableName" placeholder="orders" />
+          <button type="submit">Crear tabla con campos y relaciones…</button>
         </form>
       </div>
 
@@ -95,9 +96,10 @@ export function mountAppShell(app: HTMLElement): void {
           <div id="diagram-table-search" class="searchable-select-host diagram-table-search"></div>
         </div>
         <div class="toolbar-actions">
+          <button id="new-table-btn" type="button" title="Nueva tabla (tecla N o doble clic en el canvas)">+ Nueva tabla</button>
           <button id="theme-toggle-diagram-btn" type="button" class="theme-toggle-btn" aria-label="Cambiar tema"></button>
           <button id="zoom-out-btn" type="button">-</button>
-          <span id="zoom-label">100%</span>
+          <input id="zoom-input" type="text" inputmode="decimal" value="100%" aria-label="Zoom (escribe un porcentaje y pulsa Enter)" title="Escribe un porcentaje y pulsa Enter (flechas: +/-10%)" />
           <button id="zoom-in-btn" type="button">+</button>
           <button id="fit-btn" type="button">Ajustar</button>
           <button id="export-btn" type="button">Exportar PNG</button>
@@ -133,6 +135,29 @@ export function mountAppShell(app: HTMLElement): void {
       <textarea id="sql-modal-output" readonly></textarea>
       <div class="modal-actions">
         <button id="sql-modal-copy" type="button">Copiar SQL</button>
+      </div>
+    </div>
+  </div>
+  <div id="sql-import-modal" class="modal hidden">
+    <div class="modal-card sql-import-card">
+      <div class="modal-header">
+        <h3>Importar SQL</h3>
+        <button id="sql-import-close" type="button" class="neutral-btn">Cerrar</button>
+      </div>
+      <p class="sql-import-hint">
+        Pega un script DDL de MySQL, PostgreSQL o SQL Server (CREATE TABLE, ALTER TABLE, CREATE INDEX…) o carga un archivo .sql.
+      </p>
+      <textarea id="sql-import-input" spellcheck="false" placeholder="CREATE TABLE users (&#10;  id INT AUTO_INCREMENT PRIMARY KEY,&#10;  email VARCHAR(255) NOT NULL UNIQUE&#10;);"></textarea>
+      <input id="sql-import-file-input" type="file" accept=".sql,text/plain,application/sql" hidden />
+      <div id="sql-import-summary" class="sql-import-summary" aria-live="polite"></div>
+      <div class="sql-import-target">
+        <label class="checkbox-row"><input type="radio" name="sqlImportTarget" value="new" checked /> Nuevo proyecto</label>
+        <input id="sql-import-project-name" placeholder="Nombre del proyecto" />
+        <label class="checkbox-row"><input type="radio" name="sqlImportTarget" value="replace" /> Reemplazar el proyecto actual</label>
+      </div>
+      <div class="modal-actions sql-import-actions">
+        <button id="sql-import-file-btn" type="button" class="neutral-btn">Cargar archivo .sql</button>
+        <button id="sql-import-confirm" type="button" disabled>Importar</button>
       </div>
     </div>
   </div>
@@ -189,29 +214,6 @@ export function mountAppShell(app: HTMLElement): void {
           <button type="submit">Guardar cambios</button>
         </div>
       </form>
-    </div>
-  </div>
-  <div id="table-edit-modal" class="modal hidden">
-    <div class="modal-card table-edit-card">
-      <div class="modal-header">
-        <h3 id="table-edit-title">Editar tabla</h3>
-        <button id="table-edit-close" type="button">Cerrar</button>
-      </div>
-      <form id="table-edit-form" class="form-grid">
-        <input id="table-edit-table-id" type="hidden" />
-        <label for="table-edit-name">Nombre</label>
-        <input id="table-edit-name" required placeholder="nombre_tabla" />
-        <div class="modal-actions">
-          <button type="submit">Guardar nombre</button>
-        </div>
-      </form>
-      <div class="table-edit-relations">
-        <div class="table-edit-relations-header">
-          <h4>Relaciones de la tabla</h4>
-          <span id="table-edit-relations-count" class="table-edit-relations-count"></span>
-        </div>
-        <div id="table-edit-relations-list" class="table-edit-relations-list"></div>
-      </div>
     </div>
   </div>
 `;

@@ -3,6 +3,7 @@ import { downloadProjectJson, parseImportedProject, readJsonFile } from "../pers
 import type { Store } from "../state/store.ts";
 import { getActiveProject } from "../state/store.ts";
 import type { SelectControllers } from "./selects.ts";
+import { showToast } from "./toast.ts";
 
 export function wireProjectPanel(store: Store, selects: SelectControllers): void {
   const projectNewButton = document.querySelector<HTMLButtonElement>("#project-new-btn");
@@ -47,7 +48,7 @@ export function wireProjectPanel(store: Store, selects: SelectControllers): void
   projectDeleteButton.addEventListener("click", () => {
     const state = store.getState();
     if (state.projects.length <= 1) {
-      alert("Debe existir al menos un proyecto.");
+      showToast("Debe existir al menos un proyecto.", "error");
       return;
     }
     const active = getActiveProject(state);
@@ -71,7 +72,8 @@ export function wireProjectPanel(store: Store, selects: SelectControllers): void
       const parsed = await readJsonFile(file);
       const imported = parseImportedProject(parsed);
       if (!imported) {
-        alert("El archivo JSON no tiene un formato de proyecto valido.");
+        showToast("El archivo JSON no tiene un formato de proyecto valido.", "error");
+        projectImportJsonInput.value = "";
         return;
       }
 
@@ -90,9 +92,9 @@ export function wireProjectPanel(store: Store, selects: SelectControllers): void
           projectId: generateId("prj"),
         });
       }
-      alert(`Proyecto "${imported.name}" ${existing ? "actualizado" : "importado"} correctamente.`);
+      showToast(`Proyecto "${imported.name}" ${existing ? "actualizado" : "importado"} correctamente.`, "success");
     } catch {
-      alert("No se pudo leer el archivo JSON.");
+      showToast("No se pudo leer el archivo JSON.", "error");
     }
     projectImportJsonInput.value = "";
   });

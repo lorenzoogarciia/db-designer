@@ -1,23 +1,27 @@
 import { isAutoIncrementType, normalizeDataType } from "../../lib/data-types.ts";
 import { normalizeField, parseEnumValuesInput } from "../../domain/field.ts";
-import { generateId } from "../../domain/ids.ts";
+import { generateId, safeName } from "../../domain/ids.ts";
 import type { FkReferentialAction, RelationKind } from "../../domain/types.ts";
 import { buildRelationId, isFkReferentialAction } from "../../domain/relation.ts";
 import type { Store } from "../../state/store.ts";
-import { getTableById, safeName } from "../../state/store.ts";
+import { getTableById } from "../../state/store.ts";
 import type { SelectControllers } from "../selects.ts";
+import { showToast } from "../toast.ts";
 
-export function wireTableForm(store: Store): void {
+/**
+ * El formulario "Nueva tabla" del panel abre el creador completo (nombre, campos y relaciones)
+ * con el nombre ya escrito.
+ */
+export function wireTableForm(openTableCreator: (options: { name?: string }) => void): void {
   const tableForm = document.querySelector<HTMLFormElement>("#table-form");
   if (!tableForm) throw new Error("No se encontro #table-form");
 
   tableForm.addEventListener("submit", (event) => {
     event.preventDefault();
     const form = new FormData(tableForm);
-    const tableName = safeName((form.get("tableName") as string) || "");
-    if (!tableName) return;
-    store.dispatch({ type: "ADD_TABLE", name: tableName });
+    const name = ((form.get("tableName") as string) || "").trim();
     tableForm.reset();
+    openTableCreator({ name });
   });
 }
 
@@ -153,11 +157,23 @@ export function wireRelationForm(store: Store, selects: SelectControllers): void
     const onDelete: FkReferentialAction = isFkReferentialAction(onDeleteRaw) ? onDeleteRaw : "NO ACTION";
     const onUpdate: FkReferentialAction = isFkReferentialAction(onUpdateRaw) ? onUpdateRaw : "NO ACTION";
     if (!fromTableId || !toTableId || !fromFieldId || !toFieldId || fromTableId === toTableId) return;
-    const relationId = buildRelationId(fromTableId, fromFieldId, toTableId, toFieldId);
-    store.dispatch({
-      type: "ADD_RELATION",
-      relation: { id: relationId, fromTableId, fromFieldId, toTableId, toFieldId, kind: relationKind, onDelete, onUpdate },
-    });
+    if (relationKind === "N:M") {
+      const tableCountBefore = store.getState().tables.length;
+      store.dispatch({
+        type: "ADD_MANY_TO_MANY",
+        relation: { fromTableId, fromFieldId, toTableId, toFieldId, onDelete, onUpdate },
+      });
+      const { tables } = store.getState();
+      if (tables.length > tableCountBefore) {
+        showToast(`Relacion N:M creada con la tabla intermedia "${tables[tables.length - 1].name}".`, "success");
+      }
+    } else {
+      const relationId = buildRelationId(fromTableId, fromFieldId, toTableId, toFieldId);
+      store.dispatch({
+        type: "ADD_RELATION",
+        relation: { id: relationId, fromTableId, fromFieldId, toTableId, toFieldId, kind: relationKind, onDelete, onUpdate },
+      });
+    }
     selects.refreshSelects({
       fromTable: true,
       fromField: true,

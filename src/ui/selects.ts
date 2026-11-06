@@ -14,7 +14,7 @@ const DATA_TYPE_SELECT_OPTIONS: SelectOption[] = DATA_TYPE_OPTIONS.map((option) 
 const RELATION_KIND_OPTIONS: SelectOption[] = [
   { value: "1:1", label: "1:1 (uno a uno)" },
   { value: "1:N", label: "1:N (uno a muchos)" },
-  { value: "N:M", label: "N:M (muchos a muchos)" },
+  { value: "N:M", label: "N:M (crea tabla intermedia)" },
 ];
 
 const FK_ACTION_OPTIONS: SelectOption[] = FK_REFERENTIAL_ACTIONS.map((action) => ({

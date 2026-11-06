@@ -24,699 +24,378 @@ export interface RouteTable {
   height: number;
 }
 
-interface RouteContext {
-  obstacles: Rect[];
-  allowedRects: Rect[];
-}
+/* ------------------------------------------------------------------ */
+/* Parametros                                                          */
+/* ------------------------------------------------------------------ */
 
+/** Separacion minima entre una linea y una tabla ajena. */
 const ROUTE_PADDING = 20;
-const MAX_REPAIR_ITERATIONS = 12;
-const MAX_ASTAR_NODES = 72;
-const LANE_CANDIDATE_STEPS = 10;
+/** Separacion extra por cada relacion paralela (carriles). */
+const LANE_PADDING = 12;
+/** Longitud del tramo recto que sale/entra perpendicular a la tabla. */
+const STUB_LENGTH = 24;
+/** Margen de la zona de busqueda alrededor de los extremos. */
+const SEARCH_MARGIN = 220;
+/** Coste de cada giro de 90 grados (equivale a recorrer esa distancia). */
+const BEND_COST = 60;
+/** Multiplicador de coste al atravesar una tabla ajena (obstaculo "blando": siempre hay ruta). */
+const OBSTACLE_COST = 60;
+/** Multiplicador de coste al pasar por debajo de las propias tablas origen/destino. */
+const ENDPOINT_COST = 3;
+const EPSILON = 0.001;
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
-}
+/* ------------------------------------------------------------------ */
+/* Utilidades                                                          */
+/* ------------------------------------------------------------------ */
 
-function subtractIntervals(interval: [number, number], blockers: Array<[number, number]>): Array<[number, number]> {
-  let parts: Array<[number, number]> = [interval];
-  for (const [blockStart, blockEnd] of blockers) {
-    const next: Array<[number, number]> = [];
-    for (const [start, end] of parts) {
-      if (blockEnd <= start || blockStart >= end) {
-        next.push([start, end]);
-        continue;
-      }
-      if (start < blockStart) next.push([start, blockStart]);
-      if (blockEnd < end) next.push([blockEnd, end]);
-    }
-    parts = next;
-  }
-  return parts.filter(([start, end]) => end - start > 0.001);
-}
+type Direction = 0 | 1 | 2 | 3; // derecha, izquierda, abajo, arriba
+const DX = [1, -1, 0, 0];
+const DY = [0, 0, 1, -1];
+const OPPOSITE: Direction[] = [1, 0, 3, 2];
 
-function horizontalSegmentBlocked(x1: number, y: number, x2: number, obstacle: Rect, allowedRects: Rect[]): boolean {
-  if (y <= obstacle.top || y >= obstacle.bottom) return false;
-
-  const segMin = Math.min(x1, x2);
-  const segMax = Math.max(x1, x2);
-  const overlapMin = Math.max(segMin, obstacle.left);
-  const overlapMax = Math.min(segMax, obstacle.right);
-  if (overlapMin >= overlapMax) return false;
-
-  const allowedIntervals = allowedRects
-    .filter((rect) => y > rect.top && y < rect.bottom)
-    .map((rect) => [Math.max(overlapMin, rect.left), Math.min(overlapMax, rect.right)] as [number, number])
-    .filter(([start, end]) => end - start > 0.001);
-
-  return subtractIntervals([overlapMin, overlapMax], allowedIntervals).length > 0;
-}
-
-function verticalSegmentBlocked(x: number, y1: number, y2: number, obstacle: Rect, allowedRects: Rect[]): boolean {
-  if (x <= obstacle.left || x >= obstacle.right) return false;
-
-  const segMin = Math.min(y1, y2);
-  const segMax = Math.max(y1, y2);
-  const overlapMin = Math.max(segMin, obstacle.top);
-  const overlapMax = Math.min(segMax, obstacle.bottom);
-  if (overlapMin >= overlapMax) return false;
-
-  const allowedIntervals = allowedRects
-    .filter((rect) => x > rect.left && x < rect.right)
-    .map((rect) => [Math.max(overlapMin, rect.top), Math.min(overlapMax, rect.bottom)] as [number, number])
-    .filter(([start, end]) => end - start > 0.001);
-
-  return subtractIntervals([overlapMin, overlapMax], allowedIntervals).length > 0;
-}
-
-function segmentBlockedByObstacle(
-  x1: number,
-  y1: number,
-  x2: number,
-  y2: number,
-  obstacle: Rect,
-  allowedRects: Rect[],
-): boolean {
-  if (Math.abs(y1 - y2) < 0.001) {
-    return horizontalSegmentBlocked(x1, y1, x2, obstacle, allowedRects);
-  }
-  if (Math.abs(x1 - x2) < 0.001) {
-    return verticalSegmentBlocked(x1, y1, y2, obstacle, allowedRects);
-  }
-  return false;
-}
-
-function segmentHitsObstacle(x1: number, y1: number, x2: number, y2: number, ctx: RouteContext): boolean {
-  return ctx.obstacles.some((obstacle) => segmentBlockedByObstacle(x1, y1, x2, y2, obstacle, ctx.allowedRects));
-}
-
-function getObstacleRects(tables: RouteTable[], excludeIds: string[]): Rect[] {
-  return tables
-    .filter((table) => !excludeIds.includes(table.id))
-    .map((table) => ({
-      left: table.x - ROUTE_PADDING,
-      top: table.y - ROUTE_PADDING,
-      right: table.x + table.width + ROUTE_PADDING,
-      bottom: table.y + table.height + ROUTE_PADDING,
-    }));
-}
-
-function getEndpointRects(tables: RouteTable[], endpointIds: string[]): Rect[] {
-  return tables
-    .filter((table) => endpointIds.includes(table.id))
-    .map((table) => ({
-      left: table.x,
-      top: table.y,
-      right: table.x + table.width,
-      bottom: table.y + table.height,
-    }));
-}
-
-function buildRouteContext(tables: RouteTable[], fromTableId: string, toTableId: string): RouteContext {
-  return {
-    obstacles: getObstacleRects(tables, [fromTableId, toTableId]),
-    allowedRects: getEndpointRects(tables, [fromTableId, toTableId]),
-  };
-}
-
-function extendAnchor(anchor: FieldAnchor, clearance: number): Point {
-  switch (anchor.side) {
-    case "right":
-      return { x: anchor.x + clearance, y: anchor.y };
-    case "left":
-      return { x: anchor.x - clearance, y: anchor.y };
-    case "bottom":
-      return { x: anchor.x, y: anchor.y + clearance };
-    case "top":
-      return { x: anchor.x, y: anchor.y - clearance };
-  }
-}
-
-function slideAnchorAlongEdge(anchor: FieldAnchor, table: RouteTable, delta: number): FieldAnchor {
-  switch (anchor.side) {
-    case "left":
-    case "right":
-      return { ...anchor, y: clamp(anchor.y + delta, table.y + 8, table.y + table.height - 8) };
-    case "top":
-    case "bottom":
-      return { ...anchor, x: clamp(anchor.x + delta, table.x + 8, table.x + table.width - 8) };
-  }
-}
-
-function computeSafeExitPoint(
-  anchor: FieldAnchor,
-  table: RouteTable,
-  ctx: RouteContext,
-  clearance: number,
-  laneOffset: number,
-): Point {
-  const candidates: FieldAnchor[] = [anchor];
-  for (let step = 1; step <= 6; step++) {
-    const delta = step * (14 + laneOffset * 2);
-    candidates.push(slideAnchorAlongEdge(anchor, table, delta));
-    candidates.push(slideAnchorAlongEdge(anchor, table, -delta));
-  }
-
-  for (const candidate of candidates) {
-    for (let currentClearance = clearance; currentClearance >= 8; currentClearance -= 8) {
-      const exit = extendAnchor(candidate, currentClearance);
-      const connector = [{ x: anchor.x, y: anchor.y }, exit];
-      if (Math.abs(candidate.x - anchor.x) > 0.001 || Math.abs(candidate.y - anchor.y) > 0.001) {
-        connector.splice(1, 0, { x: candidate.x, y: candidate.y });
-      }
-      if (isPathClear(connector, ctx)) return exit;
-    }
-  }
-
-  return extendAnchor(anchor, 8);
+function sideDirection(side: FieldAnchor["side"]): Direction {
+  if (side === "right") return 0;
+  if (side === "left") return 1;
+  if (side === "bottom") return 2;
+  return 3;
 }
 
 function pushPoint(points: Point[], point: Point): void {
   const last = points[points.length - 1];
-  if (last && Math.abs(last.x - point.x) < 0.001 && Math.abs(last.y - point.y) < 0.001) return;
+  if (last && Math.abs(last.x - point.x) < EPSILON && Math.abs(last.y - point.y) < EPSILON) return;
   points.push(point);
 }
 
-function isPathClear(points: Point[], ctx: RouteContext): boolean {
-  for (let i = 0; i < points.length - 1; i++) {
-    const from = points[i];
-    const to = points[i + 1];
-    if (segmentHitsObstacle(from.x, from.y, to.x, to.y, ctx)) return false;
-  }
-  return true;
-}
-
-function pathLength(points: Point[]): number {
-  let length = 0;
-  for (let i = 0; i < points.length - 1; i++) {
-    length += Math.abs(points[i + 1].x - points[i].x) + Math.abs(points[i + 1].y - points[i].y);
-  }
-  return length;
-}
-
 function simplifyOrthogonalPath(points: Point[]): Point[] {
-  if (points.length <= 2) return points.slice();
-  const simplified: Point[] = [points[0]];
-  for (let i = 1; i < points.length - 1; i++) {
+  const deduped: Point[] = [];
+  for (const point of points) pushPoint(deduped, point);
+  if (deduped.length <= 2) return deduped;
+  const simplified: Point[] = [deduped[0]];
+  for (let i = 1; i < deduped.length - 1; i++) {
     const prev = simplified[simplified.length - 1];
-    const current = points[i];
-    const next = points[i + 1];
-    const collinearHorizontal = Math.abs(prev.y - current.y) < 0.001 && Math.abs(current.y - next.y) < 0.001;
-    const collinearVertical = Math.abs(prev.x - current.x) < 0.001 && Math.abs(current.x - next.x) < 0.001;
+    const current = deduped[i];
+    const next = deduped[i + 1];
+    const collinearHorizontal = Math.abs(prev.y - current.y) < EPSILON && Math.abs(current.y - next.y) < EPSILON;
+    const collinearVertical = Math.abs(prev.x - current.x) < EPSILON && Math.abs(current.x - next.x) < EPSILON;
     if (collinearHorizontal || collinearVertical) continue;
-    pushPoint(simplified, current);
+    simplified.push(current);
   }
-  pushPoint(simplified, points[points.length - 1]);
+  pushPoint(simplified, deduped[deduped.length - 1]);
   return simplified;
 }
 
-function laneCandidates(preferred: number, laneOffset: number, step = 18): number[] {
-  const values = [preferred];
-  for (let i = 1; i <= LANE_CANDIDATE_STEPS; i++) {
-    const delta = i * (step + laneOffset * 2);
-    values.push(preferred - delta, preferred + delta);
-  }
-  return values;
-}
-
-function obstacleSpanCandidates(
-  obstacles: Rect[],
-  axis: "x" | "y",
-  min: number,
-  max: number,
-  laneOffset: number,
-): number[] {
-  const values: number[] = [];
-  for (const rect of obstacles) {
-    if (axis === "y") {
-      if (rect.right <= min || rect.left >= max) continue;
-      values.push(rect.top - 24 - laneOffset * 8, rect.bottom + 24 + laneOffset * 8);
-    } else {
-      if (rect.bottom <= min || rect.top >= max) continue;
-      values.push(rect.left - 24 - laneOffset * 8, rect.right + 24 + laneOffset * 8);
+/**
+ * Red de seguridad: inserta un codo en cualquier tramo que no sea horizontal ni vertical,
+ * de modo que la ruta final siempre gira en angulo recto.
+ */
+export function enforceOrthogonal(points: Point[]): Point[] {
+  if (points.length < 2) return points.slice();
+  const result: Point[] = [points[0]];
+  for (let i = 1; i < points.length; i++) {
+    const prev = result[result.length - 1];
+    const current = points[i];
+    if (Math.abs(prev.x - current.x) > EPSILON && Math.abs(prev.y - current.y) > EPSILON) {
+      // Continuar en la direccion del tramo anterior antes de girar.
+      const beforePrev = result[result.length - 2];
+      const wasVertical = beforePrev ? Math.abs(beforePrev.x - prev.x) < EPSILON : false;
+      pushPoint(result, wasVertical ? { x: prev.x, y: current.y } : { x: current.x, y: prev.y });
     }
+    pushPoint(result, current);
   }
-  return values;
+  return simplifyOrthogonalPath(result);
 }
 
-function uniqueCandidates(values: number[]): number[] {
-  const seen = new Set<string>();
+function rectContainsStrict(rect: Rect, x: number, y: number): boolean {
+  return x > rect.left + EPSILON && x < rect.right - EPSILON && y > rect.top + EPSILON && y < rect.bottom - EPSILON;
+}
+
+function rectContainsClosed(rect: Rect, x: number, y: number): boolean {
+  return x >= rect.left - EPSILON && x <= rect.right + EPSILON && y >= rect.top - EPSILON && y <= rect.bottom + EPSILON;
+}
+
+function tableRect(table: RouteTable, padding = 0): Rect {
+  return {
+    left: table.x - padding,
+    top: table.y - padding,
+    right: table.x + table.width + padding,
+    bottom: table.y + table.height + padding,
+  };
+}
+
+function rectsIntersect(a: Rect, b: Rect): boolean {
+  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+}
+
+function sortedUnique(values: number[]): number[] {
+  const sorted = values.filter((value) => Number.isFinite(value)).sort((a, b) => a - b);
   const result: number[] = [];
-  for (const value of values) {
-    const key = value.toFixed(2);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(value);
+  for (const value of sorted) {
+    if (result.length === 0 || value - result[result.length - 1] > 0.5) result.push(value);
   }
   return result;
 }
 
-function uniquePoints(points: Point[]): Point[] {
-  const seen = new Set<string>();
-  const result: Point[] = [];
-  for (const point of points) {
-    const key = `${point.x.toFixed(2)},${point.y.toFixed(2)}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(point);
+/** Indice del valor mas cercano en un array ordenado. */
+function nearestIndex(values: number[], target: number): number {
+  let low = 0;
+  let high = values.length - 1;
+  while (low < high) {
+    const mid = (low + high) >> 1;
+    if (values[mid] < target) low = mid + 1;
+    else high = mid;
+  }
+  if (low > 0 && Math.abs(values[low - 1] - target) < Math.abs(values[low] - target)) return low - 1;
+  return low;
+}
+
+/* ------------------------------------------------------------------ */
+/* Cola de prioridad (min-heap)                                        */
+/* ------------------------------------------------------------------ */
+
+class MinHeap {
+  private readonly keys: number[] = [];
+  private readonly items: number[] = [];
+
+  get size(): number {
+    return this.items.length;
+  }
+
+  push(item: number, key: number): void {
+    this.items.push(item);
+    this.keys.push(key);
+    let index = this.items.length - 1;
+    while (index > 0) {
+      const parent = (index - 1) >> 1;
+      if (this.keys[parent] <= this.keys[index]) break;
+      this.swap(index, parent);
+      index = parent;
+    }
+  }
+
+  pop(): number {
+    const top = this.items[0];
+    const lastItem = this.items.pop() as number;
+    const lastKey = this.keys.pop() as number;
+    if (this.items.length > 0) {
+      this.items[0] = lastItem;
+      this.keys[0] = lastKey;
+      let index = 0;
+      for (;;) {
+        const left = index * 2 + 1;
+        const right = left + 1;
+        let smallest = index;
+        if (left < this.items.length && this.keys[left] < this.keys[smallest]) smallest = left;
+        if (right < this.items.length && this.keys[right] < this.keys[smallest]) smallest = right;
+        if (smallest === index) break;
+        this.swap(index, smallest);
+        index = smallest;
+      }
+    }
+    return top;
+  }
+
+  private swap(a: number, b: number): void {
+    [this.items[a], this.items[b]] = [this.items[b], this.items[a]];
+    [this.keys[a], this.keys[b]] = [this.keys[b], this.keys[a]];
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Router ortogonal sobre rejilla                                      */
+/* ------------------------------------------------------------------ */
+
+interface GridRoute {
+  points: Point[];
+  /** true si la ruta tuvo que atravesar alguna tabla ajena. */
+  crossesObstacle: boolean;
+}
+
+/**
+ * A* sobre una rejilla ortogonal construida con las coordenadas relevantes (bordes de
+ * obstaculos, salidas de los anclajes y canales intermedios). Cada giro cuesta BEND_COST,
+ * asi que las rutas tienen pocos codos; los obstaculos son "blandos", por lo que siempre
+ * existe ruta y nunca se recurre a tramos diagonales.
+ */
+function routeOnGrid(
+  from: FieldAnchor,
+  to: FieldAnchor,
+  obstacles: Rect[],
+  endpointRects: Rect[],
+  window: Rect,
+): GridRoute {
+  const startDir = sideDirection(from.side);
+  // Al llegar se entra en la tabla destino: direccion contraria a la normal de su lado.
+  const arrivalDir = OPPOSITE[sideDirection(to.side)];
+  const fromStub = { x: from.x + DX[startDir] * STUB_LENGTH, y: from.y + DY[startDir] * STUB_LENGTH };
+  const toStub = { x: to.x - DX[arrivalDir] * STUB_LENGTH, y: to.y - DY[arrivalDir] * STUB_LENGTH };
+
+  const xValues = [from.x, to.x, fromStub.x, toStub.x, (fromStub.x + toStub.x) / 2, window.left, window.right];
+  const yValues = [from.y, to.y, fromStub.y, toStub.y, (fromStub.y + toStub.y) / 2, window.top, window.bottom];
+  for (const rect of [...obstacles, ...endpointRects]) {
+    xValues.push(rect.left, rect.right);
+    yValues.push(rect.top, rect.bottom);
+  }
+  // Canales: centro de los huecos entre obstaculos, para que las lineas no vayan pegadas.
+  const xs0 = sortedUnique(xValues);
+  const ys0 = sortedUnique(yValues);
+  const xs = sortedUnique([...xs0, ...channelMidpoints(xs0, obstacles, "x")]);
+  const ys = sortedUnique([...ys0, ...channelMidpoints(ys0, obstacles, "y")]);
+
+  const columns = xs.length;
+  const rows = ys.length;
+  const nodeCount = columns * rows;
+  const nodeIndex = (column: number, row: number) => row * columns + column;
+
+  // Coste multiplicador de cada arista: [horizontal desde (c,r) a (c+1,r)] y [vertical desde (c,r) a (c,r+1)].
+  const horizontalCost = new Float32Array(nodeCount).fill(1);
+  const verticalCost = new Float32Array(nodeCount).fill(1);
+  for (let row = 0; row < rows; row++) {
+    for (let column = 0; column < columns; column++) {
+      const index = nodeIndex(column, row);
+      if (column < columns - 1) {
+        horizontalCost[index] = edgeCost((xs[column] + xs[column + 1]) / 2, ys[row], obstacles, endpointRects);
+      }
+      if (row < rows - 1) {
+        verticalCost[index] = edgeCost(xs[column], (ys[row] + ys[row + 1]) / 2, obstacles, endpointRects);
+      }
+    }
+  }
+
+  const start = nodeIndex(nearestIndex(xs, from.x), nearestIndex(ys, from.y));
+  const goal = nodeIndex(nearestIndex(xs, to.x), nearestIndex(ys, to.y));
+  const goalX = xs[goal % columns];
+  const goalY = ys[Math.floor(goal / columns)];
+
+  // Estado = nodo * 4 + direccion con la que se llego.
+  const stateCount = nodeCount * 4;
+  const best = new Float64Array(stateCount).fill(Number.POSITIVE_INFINITY);
+  const cameFrom = new Int32Array(stateCount).fill(-1);
+  const heap = new MinHeap();
+  const startState = start * 4 + startDir;
+  best[startState] = 0;
+  heap.push(startState, 0);
+
+  let goalState = -1;
+  while (heap.size > 0) {
+    const state = heap.pop();
+    const node = state >> 2;
+    const dir = (state & 3) as Direction;
+    if (node === goal) {
+      goalState = state;
+      break;
+    }
+    const cost = best[state];
+    const column = node % columns;
+    const row = Math.floor(node / columns);
+
+    for (let nextDir = 0 as Direction; nextDir < 4; nextDir = (nextDir + 1) as Direction) {
+      // Media vuelta: solo se permite como dos giros (penalizado) salvo en el primer tramo.
+      if (nextDir === OPPOSITE[dir] && state !== startState) continue;
+      const nextColumn = column + DX[nextDir];
+      const nextRow = row + DY[nextDir];
+      if (nextColumn < 0 || nextColumn >= columns || nextRow < 0 || nextRow >= rows) continue;
+      const nextNode = nodeIndex(nextColumn, nextRow);
+
+      let multiplier: number;
+      let length: number;
+      if (nextDir === 0) {
+        multiplier = horizontalCost[node];
+        length = xs[nextColumn] - xs[column];
+      } else if (nextDir === 1) {
+        multiplier = horizontalCost[nextNode];
+        length = xs[column] - xs[nextColumn];
+      } else if (nextDir === 2) {
+        multiplier = verticalCost[node];
+        length = ys[nextRow] - ys[row];
+      } else {
+        multiplier = verticalCost[nextNode];
+        length = ys[row] - ys[nextRow];
+      }
+
+      let stepCost = length * multiplier;
+      if (nextDir !== dir) stepCost += nextDir === OPPOSITE[dir] ? BEND_COST * 2 : BEND_COST;
+      if (nextNode === goal && nextDir !== arrivalDir) stepCost += BEND_COST;
+
+      const nextState = nextNode * 4 + nextDir;
+      const nextCost = cost + stepCost;
+      if (nextCost >= best[nextState]) continue;
+      best[nextState] = nextCost;
+      cameFrom[nextState] = state;
+      const heuristic = Math.abs(goalX - xs[nextColumn]) + Math.abs(goalY - ys[nextRow]);
+      heap.push(nextState, nextCost + heuristic);
+    }
+  }
+
+  if (goalState < 0) {
+    // No deberia ocurrir (la rejilla es conexa), pero por si acaso: ruta en "Z" ortogonal.
+    return { points: enforceOrthogonal([from, fromStub, toStub, to]), crossesObstacle: true };
+  }
+
+  const nodes: number[] = [];
+  let crossesObstacle = false;
+  for (let state = goalState; state >= 0; state = cameFrom[state]) {
+    nodes.push(state >> 2);
+    const previous = cameFrom[state];
+    if (previous >= 0) {
+      const a = previous >> 2;
+      const b = state >> 2;
+      const horizontal = Math.floor(a / columns) === Math.floor(b / columns);
+      const multiplier = horizontal ? horizontalCost[Math.min(a, b)] : verticalCost[Math.min(a, b)];
+      if (multiplier >= OBSTACLE_COST) crossesObstacle = true;
+    }
+  }
+  nodes.reverse();
+
+  const points: Point[] = [{ x: from.x, y: from.y }];
+  for (const node of nodes) pushPoint(points, { x: xs[node % columns], y: ys[Math.floor(node / columns)] });
+  pushPoint(points, { x: to.x, y: to.y });
+  return { points: enforceOrthogonal(points), crossesObstacle };
+}
+
+function channelMidpoints(values: number[], obstacles: Rect[], axis: "x" | "y"): number[] {
+  if (obstacles.length === 0) return [];
+  const edges = new Set<number>();
+  for (const rect of obstacles) {
+    if (axis === "x") edges.add(rect.left).add(rect.right);
+    else edges.add(rect.top).add(rect.bottom);
+  }
+  const result: number[] = [];
+  for (let i = 0; i < values.length - 1; i++) {
+    const gap = values[i + 1] - values[i];
+    if (gap > 2 * ROUTE_PADDING && (edges.has(values[i]) || edges.has(values[i + 1]))) {
+      result.push((values[i] + values[i + 1]) / 2);
+    }
   }
   return result;
 }
 
-function manhattanDistance(a: Point, b: Point): number {
-  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+function edgeCost(x: number, y: number, obstacles: Rect[], endpointRects: Rect[]): number {
+  // Por dentro de la tabla origen/destino (queda oculto bajo la tarjeta): permitido pero caro.
+  if (endpointRects.some((rect) => rectContainsStrict(rect, x, y))) return ENDPOINT_COST;
+  if (obstacles.some((rect) => rectContainsStrict(rect, x, y))) return OBSTACLE_COST;
+  // Pegado al borde de la propia tabla: se ve feo, se desaconseja.
+  if (endpointRects.some((rect) => rectContainsClosed(rect, x, y))) return 2;
+  return 1;
 }
 
-function canConnectOrthogonal(a: Point, b: Point, ctx: RouteContext): boolean {
-  if (Math.abs(a.x - b.x) > 0.001 && Math.abs(a.y - b.y) > 0.001) return false;
-  return !segmentHitsObstacle(a.x, a.y, b.x, b.y, ctx);
-}
-
-function coordKey(value: number): string {
-  return value.toFixed(2);
-}
-
-function buildOrthogonalNeighborGraph(
-  nodes: Point[],
-  ctx: RouteContext,
-): Map<number, Array<{ to: number; cost: number }>> {
-  const neighbors = new Map<number, Array<{ to: number; cost: number }>>();
-  for (let i = 0; i < nodes.length; i++) neighbors.set(i, []);
-
-  const byX = new Map<string, number[]>();
-  const byY = new Map<string, number[]>();
-
-  for (let i = 0; i < nodes.length; i++) {
-    const xKey = coordKey(nodes[i].x);
-    const yKey = coordKey(nodes[i].y);
-    const xGroup = byX.get(xKey);
-    if (xGroup) xGroup.push(i);
-    else byX.set(xKey, [i]);
-    const yGroup = byY.get(yKey);
-    if (yGroup) yGroup.push(i);
-    else byY.set(yKey, [i]);
-  }
-
-  const linkGroups = (groups: Map<string, number[]>) => {
-    for (const indexes of groups.values()) {
-      for (let i = 0; i < indexes.length; i++) {
-        for (let j = i + 1; j < indexes.length; j++) {
-          const a = indexes[i];
-          const b = indexes[j];
-          if (!canConnectOrthogonal(nodes[a], nodes[b], ctx)) continue;
-          const cost = manhattanDistance(nodes[a], nodes[b]);
-          neighbors.get(a)!.push({ to: b, cost });
-          neighbors.get(b)!.push({ to: a, cost });
-        }
-      }
-    }
-  };
-
-  linkGroups(byX);
-  linkGroups(byY);
-  return neighbors;
-}
-
-function collectTablePerimeterNodes(table: RouteTable, step = 28): Point[] {
-  const points: Point[] = [];
-  for (let y = table.y; y <= table.y + table.height; y += step) {
-    points.push({ x: table.x, y }, { x: table.x + table.width, y });
-  }
-  for (let x = table.x; x <= table.x + table.width; x += step) {
-    points.push({ x, y: table.y }, { x, y: table.y + table.height });
-  }
-  return points;
-}
-
-function collectRouteNodes(
-  exit: Point,
-  entry: Point,
-  tables: RouteTable[],
-  endpointIds: string[],
-  ctx: RouteContext,
-  laneOffset: number,
-): Point[] {
-  const margin = 8 + laneOffset * 4;
-  const points: Point[] = [exit, entry];
-
-  // Prefer corner + projected nodes; skip dense perimeter sampling when crowded.
-  const usePerimeter = ctx.obstacles.length <= 8;
-
-  for (const rect of ctx.obstacles) {
-    points.push(
-      { x: rect.left - margin, y: rect.top - margin },
-      { x: rect.right + margin, y: rect.top - margin },
-      { x: rect.left - margin, y: rect.bottom + margin },
-      { x: rect.right + margin, y: rect.bottom + margin },
-      { x: exit.x, y: rect.top - margin },
-      { x: exit.x, y: rect.bottom + margin },
-      { x: rect.left - margin, y: exit.y },
-      { x: rect.right + margin, y: exit.y },
-      { x: entry.x, y: rect.top - margin },
-      { x: entry.x, y: rect.bottom + margin },
-      { x: rect.left - margin, y: entry.y },
-      { x: rect.right + margin, y: entry.y },
-    );
-  }
-
-  if (usePerimeter) {
-    for (const table of tables) {
-      if (!endpointIds.includes(table.id)) continue;
-      points.push(...collectTablePerimeterNodes(table, 40));
-    }
-  }
-
-  const unique = uniquePoints(points);
-  if (unique.length <= MAX_ASTAR_NODES) return unique;
-
-  // Keep endpoints and evenly sample the rest to bound A* graph size.
-  const kept = [unique[0], unique[1]];
-  const remaining = unique.slice(2);
-  const step = Math.ceil(remaining.length / (MAX_ASTAR_NODES - 2));
-  for (let i = 0; i < remaining.length; i += step) {
-    kept.push(remaining[i]);
-  }
-  return uniquePoints(kept).slice(0, MAX_ASTAR_NODES);
-}
-
-function astarOrthogonalRoute(
-  exit: Point,
-  entry: Point,
-  tables: RouteTable[],
-  endpointIds: string[],
-  ctx: RouteContext,
-  laneOffset: number,
-): Point[] | null {
-  const nodes = collectRouteNodes(exit, entry, tables, endpointIds, ctx, laneOffset);
-  const startIndex = nodes.findIndex((node) => manhattanDistance(node, exit) < 0.001);
-  const endIndex = nodes.findIndex((node) => manhattanDistance(node, entry) < 0.001);
-  if (startIndex < 0 || endIndex < 0) return null;
-
-  // Only connect nodes that share an axis — avoids O(M²) checks of diagonal pairs.
-  const neighbors = buildOrthogonalNeighborGraph(nodes, ctx);
-
-  const open = new Set<number>([startIndex]);
-  const cameFrom = new Map<number, number>();
-  const gScore = new Map<number, number>([[startIndex, 0]]);
-  const fScore = new Map<number, number>([[startIndex, manhattanDistance(nodes[startIndex], nodes[endIndex])]]);
-
-  while (open.size > 0) {
-    let current = -1;
-    let bestF = Number.POSITIVE_INFINITY;
-    for (const index of open) {
-      const score = fScore.get(index) ?? Number.POSITIVE_INFINITY;
-      if (score < bestF) {
-        bestF = score;
-        current = index;
-      }
-    }
-
-    if (current === endIndex) {
-      const path: Point[] = [nodes[current]];
-      while (cameFrom.has(current)) {
-        current = cameFrom.get(current)!;
-        path.unshift(nodes[current]);
-      }
-      return simplifyOrthogonalPath(path);
-    }
-
-    open.delete(current);
-    const currentG = gScore.get(current) ?? Number.POSITIVE_INFINITY;
-
-    for (const edge of neighbors.get(current) ?? []) {
-      const tentativeG = currentG + edge.cost;
-      if (tentativeG >= (gScore.get(edge.to) ?? Number.POSITIVE_INFINITY)) continue;
-      cameFrom.set(edge.to, current);
-      gScore.set(edge.to, tentativeG);
-      fScore.set(edge.to, tentativeG + manhattanDistance(nodes[edge.to], nodes[endIndex]));
-      open.add(edge.to);
-    }
-  }
-
-  return null;
-}
-
-function buildHVHRoute(exit: Point, entry: Point, midY: number): Point[] {
-  return [exit, { x: exit.x, y: midY }, { x: entry.x, y: midY }, entry];
-}
-
-function buildVHVRoute(exit: Point, entry: Point, midX: number): Point[] {
-  return [exit, { x: midX, y: exit.y }, { x: midX, y: entry.y }, entry];
-}
-
-function findBestOrthogonalRoute(
-  exit: Point,
-  entry: Point,
-  tables: RouteTable[],
-  endpointIds: string[],
-  ctx: RouteContext,
-  laneOffset: number,
-): Point[] {
-  const direct = [exit, entry];
-  if (isPathClear(direct, ctx)) return direct;
-
-  const cornerA = { x: entry.x, y: exit.y };
-  const cornerB = { x: exit.x, y: entry.y };
-  const minX = Math.min(exit.x, entry.x);
-  const maxX = Math.max(exit.x, entry.x);
-  const minY = Math.min(exit.y, entry.y);
-  const maxY = Math.max(exit.y, entry.y);
-
-  const midYCandidates = uniqueCandidates([
-    ...laneCandidates((exit.y + entry.y) / 2 + laneOffset * 14, laneOffset),
-    ...obstacleSpanCandidates(ctx.obstacles, "y", minX, maxX, laneOffset),
-  ]);
-  const midXCandidates = uniqueCandidates([
-    ...laneCandidates((exit.x + entry.x) / 2 + laneOffset * 14, laneOffset),
-    ...obstacleSpanCandidates(ctx.obstacles, "x", minY, maxY, laneOffset),
-  ]);
-
-  let bestPath: Point[] | null = null;
-  const consider = (candidate: Point[]) => {
-    const simplified = simplifyOrthogonalPath(candidate);
-    if (!isPathClear(simplified, ctx)) return;
-    if (!bestPath || pathLength(simplified) < pathLength(bestPath)) {
-      bestPath = simplified;
-    }
-  };
-
-  consider([exit, cornerA, entry]);
-  consider([exit, cornerB, entry]);
-  for (const midY of midYCandidates) consider(buildHVHRoute(exit, entry, midY));
-  for (const midX of midXCandidates) consider(buildVHVRoute(exit, entry, midX));
-
-  if (bestPath) return bestPath;
-
-  // With many obstacles A* gets expensive; fall back to cheap repair first.
-  if (ctx.obstacles.length > 14) {
-    return repairOrthogonalPath([exit, entry], tables, endpointIds, ctx, laneOffset);
-  }
-
-  const astarPath = astarOrthogonalRoute(exit, entry, tables, endpointIds, ctx, laneOffset);
-  if (astarPath) return astarPath;
-
-  return repairOrthogonalPath([exit, entry], tables, endpointIds, ctx, laneOffset);
-}
-
-function repairOrthogonalPath(
-  points: Point[],
-  tables: RouteTable[],
-  endpointIds: string[],
-  ctx: RouteContext,
-  laneOffset: number,
-): Point[] {
-  let current = simplifyOrthogonalPath(points);
-
-  for (let iteration = 0; iteration < MAX_REPAIR_ITERATIONS; iteration++) {
-    let changed = false;
-    const next: Point[] = [current[0]];
-
-    for (let i = 0; i < current.length - 1; i++) {
-      const from = next[next.length - 1];
-      const to = current[i + 1];
-
-      if (!segmentHitsObstacle(from.x, from.y, to.x, to.y, ctx)) {
-        pushPoint(next, to);
-        continue;
-      }
-
-      changed = true;
-      const detour = buildDetourBetween(from, to, tables, endpointIds, ctx, laneOffset);
-      for (const point of detour) pushPoint(next, point);
-      pushPoint(next, to);
-    }
-
-    current = simplifyOrthogonalPath(next);
-    if (!changed) break;
-  }
-
-  return current;
-}
-
-function buildDetourBetween(
-  from: Point,
-  to: Point,
-  tables: RouteTable[],
-  endpointIds: string[],
-  ctx: RouteContext,
-  laneOffset: number,
-): Point[] {
-  const horizontal = Math.abs(from.y - to.y) < 0.001;
-  const vertical = Math.abs(from.x - to.x) < 0.001;
-
-  if (horizontal) {
-    const detourY = findFreeHorizontalY(from.x, to.x, from.y, ctx, laneOffset);
-    return [{ x: from.x, y: detourY }, { x: to.x, y: detourY }];
-  }
-
-  if (vertical) {
-    const detourX = findFreeVerticalX(from.y, to.y, from.x, ctx, laneOffset);
-    return [{ x: detourX, y: from.y }, { x: detourX, y: to.y }];
-  }
-
-  const astarPath = astarOrthogonalRoute(from, to, tables, endpointIds, ctx, laneOffset);
-  if (astarPath && astarPath.length > 2) return astarPath.slice(1, -1);
-
-  const midY = findFreeHorizontalY(from.x, to.x, (from.y + to.y) / 2, ctx, laneOffset);
-  return [{ x: from.x, y: midY }, { x: to.x, y: midY }];
-}
-
-function findFreeHorizontalY(xStart: number, xEnd: number, preferredY: number, ctx: RouteContext, laneOffset: number): number {
-  const minX = Math.min(xStart, xEnd);
-  const maxX = Math.max(xStart, xEnd);
-  const candidates = uniqueCandidates([
-    ...laneCandidates(preferredY, laneOffset),
-    ...obstacleSpanCandidates(ctx.obstacles, "y", minX, maxX, laneOffset),
-  ]);
-
-  for (const y of candidates) {
-    if (!segmentHitsObstacle(minX, y, maxX, y, ctx)) return y;
-  }
-
-  const blocking = ctx.obstacles.filter((rect) => rect.right > minX && rect.left < maxX);
-  if (blocking.length === 0) return preferredY;
-
-  const above = Math.min(...blocking.map((rect) => rect.top)) - 24 - laneOffset * 10;
-  if (!segmentHitsObstacle(minX, above, maxX, above, ctx)) return above;
-
-  return Math.max(...blocking.map((rect) => rect.bottom)) + 24 + laneOffset * 10;
-}
-
-function findFreeVerticalX(yStart: number, yEnd: number, preferredX: number, ctx: RouteContext, laneOffset: number): number {
-  const minY = Math.min(yStart, yEnd);
-  const maxY = Math.max(yStart, yEnd);
-  const candidates = uniqueCandidates([
-    ...laneCandidates(preferredX, laneOffset),
-    ...obstacleSpanCandidates(ctx.obstacles, "x", minY, maxY, laneOffset),
-  ]);
-
-  for (const x of candidates) {
-    if (!segmentHitsObstacle(x, minY, x, maxY, ctx)) return x;
-  }
-
-  const blocking = ctx.obstacles.filter((rect) => rect.bottom > minY && rect.top < maxY);
-  if (blocking.length === 0) return preferredX;
-
-  const left = Math.min(...blocking.map((rect) => rect.left)) - 24 - laneOffset * 10;
-  if (!segmentHitsObstacle(left, minY, left, maxY, ctx)) return left;
-
-  return Math.max(...blocking.map((rect) => rect.right)) + 24 + laneOffset * 10;
-}
-
-function getTableById(tables: RouteTable[], tableId: string): RouteTable | undefined {
-  return tables.find((table) => table.id === tableId);
-}
-
-function appendConnectorPoints(points: Point[], anchor: FieldAnchor, exit: Point, ctx: RouteContext): void {
-  if (Math.abs(anchor.x - exit.x) < 0.001 || Math.abs(anchor.y - exit.y) < 0.001) {
-    if (!segmentHitsObstacle(anchor.x, anchor.y, exit.x, exit.y, ctx)) {
-      pushPoint(points, exit);
-      return;
-    }
-  }
-
-  const cornerA = { x: exit.x, y: anchor.y };
-  const cornerB = { x: anchor.x, y: exit.y };
-  const routeA =
-    !segmentHitsObstacle(anchor.x, anchor.y, cornerA.x, cornerA.y, ctx) &&
-    !segmentHitsObstacle(cornerA.x, cornerA.y, exit.x, exit.y, ctx);
-  const routeB =
-    !segmentHitsObstacle(anchor.x, anchor.y, cornerB.x, cornerB.y, ctx) &&
-    !segmentHitsObstacle(cornerB.x, cornerB.y, exit.x, exit.y, ctx);
-
-  if (routeA) {
-    pushPoint(points, cornerA);
-    pushPoint(points, exit);
-    return;
-  }
-  if (routeB) {
-    pushPoint(points, cornerB);
-    pushPoint(points, exit);
-    return;
-  }
-
-  pushPoint(points, exit);
-}
-
-function appendEntryConnector(points: Point[], anchor: FieldAnchor, entry: Point, ctx: RouteContext): void {
-  pushPoint(points, entry);
-
-  if (Math.abs(anchor.x - entry.x) < 0.001 || Math.abs(anchor.y - entry.y) < 0.001) {
-    if (!segmentHitsObstacle(entry.x, entry.y, anchor.x, anchor.y, ctx)) {
-      pushPoint(points, { x: anchor.x, y: anchor.y });
-      return;
-    }
-  }
-
-  const cornerA = { x: entry.x, y: anchor.y };
-  const cornerB = { x: anchor.x, y: entry.y };
-  const routeA =
-    !segmentHitsObstacle(entry.x, entry.y, cornerA.x, cornerA.y, ctx) &&
-    !segmentHitsObstacle(cornerA.x, cornerA.y, anchor.x, anchor.y, ctx);
-  const routeB =
-    !segmentHitsObstacle(entry.x, entry.y, cornerB.x, cornerB.y, ctx) &&
-    !segmentHitsObstacle(cornerB.x, cornerB.y, anchor.x, anchor.y, ctx);
-
-  if (routeA) {
-    pushPoint(points, cornerA);
-    pushPoint(points, { x: anchor.x, y: anchor.y });
-    return;
-  }
-  if (routeB) {
-    pushPoint(points, cornerB);
-    pushPoint(points, { x: anchor.x, y: anchor.y });
-    return;
-  }
-
-  pushPoint(points, { x: anchor.x, y: anchor.y });
-}
+/* ------------------------------------------------------------------ */
+/* Ruta completa                                                       */
+/* ------------------------------------------------------------------ */
 
 function buildFastRoutePoints(from: FieldAnchor, to: FieldAnchor, laneOffset: number): Point[] {
-  const clearance = 24 + laneOffset * 10;
-  const exit = extendAnchor(from, clearance);
-  const entry = extendAnchor(to, clearance);
+  const clearance = STUB_LENGTH + laneOffset * 10;
+  const startDir = sideDirection(from.side);
+  const endDir = sideDirection(to.side);
+  const exit = { x: from.x + DX[startDir] * clearance, y: from.y + DY[startDir] * clearance };
+  const entry = { x: to.x + DX[endDir] * clearance, y: to.y + DY[endDir] * clearance };
   const midY = (exit.y + entry.y) / 2 + laneOffset * 14;
   const midX = (exit.x + entry.x) / 2 + laneOffset * 14;
 
-  if (from.side === "left" || from.side === "right") {
-    return simplifyOrthogonalPath([
-      { x: from.x, y: from.y },
-      exit,
-      { x: exit.x, y: midY },
-      { x: entry.x, y: midY },
-      entry,
-      { x: to.x, y: to.y },
-    ]);
-  }
-
-  return simplifyOrthogonalPath([
-    { x: from.x, y: from.y },
-    exit,
-    { x: midX, y: exit.y },
-    { x: midX, y: entry.y },
-    entry,
-    { x: to.x, y: to.y },
-  ]);
+  const middle =
+    from.side === "left" || from.side === "right"
+      ? [{ x: exit.x, y: midY }, { x: entry.x, y: midY }]
+      : [{ x: midX, y: exit.y }, { x: midX, y: entry.y }];
+  return enforceOrthogonal([{ x: from.x, y: from.y }, exit, ...middle, entry, { x: to.x, y: to.y }]);
 }
 
 function buildRoutePoints(
@@ -728,29 +407,43 @@ function buildRoutePoints(
   laneOffset: number,
   quality: "fast" | "full" = "full",
 ): Point[] {
-  if (quality === "fast") {
-    return buildFastRoutePoints(from, to, laneOffset);
+  if (quality === "fast") return buildFastRoutePoints(from, to, laneOffset);
+
+  const padding = ROUTE_PADDING + laneOffset * LANE_PADDING;
+  const endpointRects = tables
+    .filter((table) => table.id === fromTableId || table.id === toTableId)
+    .map((table) => tableRect(table));
+  const others = tables.filter((table) => table.id !== fromTableId && table.id !== toTableId);
+
+  let margin = SEARCH_MARGIN;
+  let route: GridRoute | null = null;
+  // Zona de busqueda alrededor de los extremos; si la ruta tiene que atravesar una tabla, se amplia.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const area: Rect = {
+      left: Math.min(from.x, to.x, ...endpointRects.map((rect) => rect.left)) - margin,
+      top: Math.min(from.y, to.y, ...endpointRects.map((rect) => rect.top)) - margin,
+      right: Math.max(from.x, to.x, ...endpointRects.map((rect) => rect.right)) + margin,
+      bottom: Math.max(from.y, to.y, ...endpointRects.map((rect) => rect.bottom)) + margin,
+    };
+    const obstacles = others.map((table) => tableRect(table, padding)).filter((rect) => rectsIntersect(rect, area));
+    // La ventana abarca tambien los obstaculos que sobresalen, para poder rodearlos.
+    const window: Rect = {
+      left: Math.min(area.left, ...obstacles.map((rect) => rect.left - padding)),
+      top: Math.min(area.top, ...obstacles.map((rect) => rect.top - padding)),
+      right: Math.max(area.right, ...obstacles.map((rect) => rect.right + padding)),
+      bottom: Math.max(area.bottom, ...obstacles.map((rect) => rect.bottom + padding)),
+    };
+    route = routeOnGrid(from, to, obstacles, endpointRects, window);
+    if (!route.crossesObstacle) break;
+    margin *= 3;
   }
 
-  const ctx = buildRouteContext(tables, fromTableId, toTableId);
-  const fromTable = getTableById(tables, fromTableId);
-  const toTable = getTableById(tables, toTableId);
-  if (!fromTable || !toTable) return [{ x: from.x, y: from.y }, { x: to.x, y: to.y }];
-
-  const clearance = 34 + laneOffset * 16;
-  const points: Point[] = [{ x: from.x, y: from.y }];
-  const exit = computeSafeExitPoint(from, fromTable, ctx, clearance, laneOffset);
-  const entry = computeSafeExitPoint(to, toTable, ctx, clearance, laneOffset);
-
-  appendConnectorPoints(points, from, exit, ctx);
-
-  const middle = findBestOrthogonalRoute(exit, entry, tables, [fromTableId, toTableId], ctx, laneOffset);
-  for (const point of middle.slice(1, -1)) pushPoint(points, point);
-
-  appendEntryConnector(points, to, entry, ctx);
-
-  return repairOrthogonalPath(simplifyOrthogonalPath(points), tables, [fromTableId, toTableId], ctx, laneOffset);
+  return route ? route.points : buildFastRoutePoints(from, to, laneOffset);
 }
+
+/* ------------------------------------------------------------------ */
+/* API                                                                 */
+/* ------------------------------------------------------------------ */
 
 /** @internal Exported for tests */
 export function buildRoutePointsForTest(
@@ -760,17 +453,31 @@ export function buildRoutePointsForTest(
   fromTableId: string,
   toTableId: string,
   laneOffset: number,
+  quality: "fast" | "full" = "full",
 ): Point[] {
-  return buildRoutePoints(from, to, tables, fromTableId, toTableId, laneOffset);
+  return buildRoutePoints(from, to, tables, fromTableId, toTableId, laneOffset, quality);
 }
 
-/** @internal Exported for tests */
+/**
+ * @internal Exported for tests: true si ningun tramo atraviesa una tabla ajena (con margen),
+ * permitiendo pasar por debajo de las tablas de `excludeIds`.
+ */
 export function isRouteClearForTest(points: Point[], tables: RouteTable[], excludeIds: string[]): boolean {
-  const ctx = {
-    obstacles: getObstacleRects(tables, excludeIds),
-    allowedRects: getEndpointRects(tables, excludeIds),
-  };
-  return isPathClear(points, ctx);
+  const obstacles = tables.filter((table) => !excludeIds.includes(table.id)).map((table) => tableRect(table, ROUTE_PADDING));
+  const allowed = tables.filter((table) => excludeIds.includes(table.id)).map((table) => tableRect(table));
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    const length = Math.abs(b.x - a.x) + Math.abs(b.y - a.y);
+    const steps = Math.max(1, Math.ceil(length / 4));
+    for (let step = 1; step < steps; step++) {
+      const x = a.x + ((b.x - a.x) * step) / steps;
+      const y = a.y + ((b.y - a.y) * step) / steps;
+      if (allowed.some((rect) => rectContainsClosed(rect, x, y))) continue;
+      if (obstacles.some((rect) => rectContainsStrict(rect, x, y))) return false;
+    }
+  }
+  return true;
 }
 
 export function buildRoutedRelationPath(
@@ -792,11 +499,20 @@ export function buildRoutedRelationPath(
   }));
 
   const path = scaled.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(" ");
-  const midIndex = Math.floor((scaled.length - 1) / 2);
-  const nextIndex = Math.min(midIndex + 1, scaled.length - 1);
+  // Etiqueta en el centro del tramo mas largo: queda sobre una parte recta y visible.
+  let longest = 0;
+  let longestIndex = 0;
+  for (let i = 0; i < scaled.length - 1; i++) {
+    const length = Math.abs(scaled[i + 1].x - scaled[i].x) + Math.abs(scaled[i + 1].y - scaled[i].y);
+    if (length > longest) {
+      longest = length;
+      longestIndex = i;
+    }
+  }
+  const nextIndex = Math.min(longestIndex + 1, scaled.length - 1);
   const labelPoint = {
-    x: (scaled[midIndex].x + scaled[nextIndex].x) / 2,
-    y: (scaled[midIndex].y + scaled[nextIndex].y) / 2,
+    x: (scaled[longestIndex].x + scaled[nextIndex].x) / 2,
+    y: (scaled[longestIndex].y + scaled[nextIndex].y) / 2,
   };
 
   return { path, pathPoints: scaled, labelPoint };

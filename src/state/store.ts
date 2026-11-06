@@ -1,7 +1,9 @@
-import { applyFieldRules, createDefaultIdField, normalizeField } from "../domain/field.ts";
-import { buildRelationId, normalizeRelation, type RelationInput } from "../domain/relation.ts";
-import { clamp, generateId, safeName } from "../domain/ids.ts";
-import type { AppState, Field, Project, RelationKind, Table } from "../domain/types.ts";
+import { applyFieldRules, createDefaultIdField } from "../domain/field.ts";
+import { buildJunction, type ManyToManyInput } from "../domain/many-to-many.ts";
+import { buildRelationId, normalizeRelation, normalizeRelations, type RelationInput } from "../domain/relation.ts";
+import { clamp, generateId } from "../domain/ids.ts";
+import { ZOOM_FLOOR, ZOOM_MAX } from "../diagram/camera.ts";
+import type { AppState, Field, Project, Relation, Table } from "../domain/types.ts";
 
 export function getActiveProject(state: AppState): Project {
   return state.projects.find((project) => project.id === state.activeProjectId) ?? state.projects[0];
@@ -33,7 +35,16 @@ export function syncStateFromActiveProject(state: AppState): AppState {
 }
 
 export type Action =
-  | { type: "ADD_TABLE"; name: string }
+  | { type: "ADD_TABLE"; name: string; tableId?: string; x?: number; y?: number }
+  | { type: "CREATE_TABLE"; table: Table; relations: Relation[]; manyToMany: ManyToManyInput[] }
+  | {
+      type: "UPDATE_TABLE";
+      table: Table;
+      /** Claves foraneas salientes de la tabla (sustituyen a las anteriores, salvo N:M antiguas). */
+      relations: Relation[];
+      manyToMany: ManyToManyInput[];
+      removeRelationIds: string[];
+    }
   | { type: "REMOVE_TABLE"; tableId: string }
   | { type: "RENAME_TABLE"; tableId: string; name: string }
   | { type: "ADD_FIELD"; tableId: string; field: Field }
@@ -42,7 +53,7 @@ export type Action =
   | { type: "MOVE_FIELD"; tableId: string; fieldId: string; direction: "up" | "down" }
   | { type: "ADD_RELATION"; relation: RelationInput }
   | { type: "REMOVE_RELATION"; relationId: string }
-  | { type: "UPDATE_RELATION_KIND"; relationId: string; kind: RelationKind }
+  | { type: "ADD_MANY_TO_MANY"; relation: ManyToManyInput; replaceRelationId?: string }
   | { type: "UPDATE_RELATION"; relationId: string; relation: RelationInput }
   | { type: "SET_ZOOM"; zoom: number }
   | { type: "UPDATE_TABLE_POSITION"; tableId: string; x: number; y: number }
@@ -52,27 +63,62 @@ export type Action =
   | { type: "SWITCH_PROJECT"; projectId: string }
   | { type: "IMPORT_PROJECT"; project: Omit<Project, "id">; projectId?: string; mergeIntoExistingId?: string };
 
-function mutateFieldUpdate(table: Table, fieldId: string, updates: Partial<Field>): void {
-  const field = table.fields.find((item) => item.id === fieldId);
-  if (!field) return;
-  Object.assign(field, updates);
-  applyFieldRules(field, table);
-}
-
 export function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case "ADD_TABLE": {
       const tables = [
         ...state.tables,
         {
-          id: generateId("tbl"),
+          id: action.tableId ?? generateId("tbl"),
           name: action.name,
           fields: [createDefaultIdField()],
-          x: 24 + state.tables.length * 28,
-          y: 24 + state.tables.length * 28,
+          x: action.x ?? 24 + state.tables.length * 28,
+          y: action.y ?? 24 + state.tables.length * 28,
         },
       ];
       return { ...state, tables };
+    }
+    case "CREATE_TABLE": {
+      // Tabla completa con sus FKs y relaciones N:M en una sola operacion (un unico render).
+      if (state.tables.some((table) => table.id === action.table.id)) return state;
+      let tables = [...state.tables, action.table];
+      let relations = [...state.relations, ...normalizeRelations(action.relations)];
+      for (const manyToMany of action.manyToMany) {
+        const junction = buildJunction(tables, manyToMany);
+        if (!junction) continue;
+        tables = [...tables, junction.table];
+        relations = [...relations, ...junction.relations];
+      }
+      return { ...state, tables, relations };
+    }
+    case "UPDATE_TABLE": {
+      const { table } = action;
+      if (!state.tables.some((item) => item.id === table.id)) return state;
+      const fieldIds = new Set(table.fields.map((field) => field.id));
+      const removed = new Set(action.removeRelationIds);
+      const kept = state.relations.filter((relation) => {
+        if (removed.has(relation.id)) return false;
+        const outgoing = relation.fromTableId === table.id;
+        // Las FKs salientes las define el editor; las N:M antiguas se conservan si su campo sigue.
+        if (outgoing && relation.kind !== "N:M") return false;
+        if (outgoing && !fieldIds.has(relation.fromFieldId)) return false;
+        // Relaciones hacia campos que ya no existen se eliminan.
+        if (relation.toTableId === table.id && !fieldIds.has(relation.toFieldId)) return false;
+        return true;
+      });
+      const added = normalizeRelations(action.relations).filter(
+        (relation, index, list) =>
+          !kept.some((item) => item.id === relation.id) && list.findIndex((item) => item.id === relation.id) === index,
+      );
+      let tables = state.tables.map((item) => (item.id === table.id ? table : item));
+      let relations = [...kept, ...added];
+      for (const manyToMany of action.manyToMany) {
+        const junction = buildJunction(tables, manyToMany);
+        if (!junction) continue;
+        tables = [...tables, junction.table];
+        relations = [...relations, ...junction.relations];
+      }
+      return { ...state, tables, relations };
     }
     case "REMOVE_TABLE": {
       const tables = state.tables.filter((table) => table.id !== action.tableId);
@@ -144,11 +190,17 @@ export function reducer(state: AppState, action: Action): AppState {
     case "REMOVE_RELATION": {
       return { ...state, relations: state.relations.filter((item) => item.id !== action.relationId) };
     }
-    case "UPDATE_RELATION_KIND": {
-      const relations = state.relations.map((relation) =>
-        relation.id === action.relationId ? { ...relation, kind: action.kind } : relation,
-      );
-      return { ...state, relations };
+    case "ADD_MANY_TO_MANY": {
+      const junction = buildJunction(state.tables, action.relation);
+      if (!junction) return state;
+      const remaining = action.replaceRelationId
+        ? state.relations.filter((relation) => relation.id !== action.replaceRelationId)
+        : state.relations;
+      return {
+        ...state,
+        tables: [...state.tables, junction.table],
+        relations: [...remaining, ...junction.relations],
+      };
     }
     case "UPDATE_RELATION": {
       if (!state.relations.some((relation) => relation.id === action.relationId)) return state;
@@ -170,7 +222,7 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, relations };
     }
     case "SET_ZOOM": {
-      const zoom = clamp(Number(action.zoom.toFixed(2)), 0.3, 2.5);
+      const zoom = clamp(Number(action.zoom.toFixed(3)), ZOOM_FLOOR, ZOOM_MAX);
       return { ...state, zoom };
     }
     case "UPDATE_TABLE_POSITION": {
@@ -291,10 +343,3 @@ export function createStore(initial: AppState, onPersist: (state: AppState) => v
     },
   };
 }
-
-/** @internal helper for field edit form */
-export function applyFieldEditToTable(table: Table, fieldId: string, raw: Partial<Field>): void {
-  mutateFieldUpdate(table, fieldId, raw);
-}
-
-export { normalizeField, safeName };

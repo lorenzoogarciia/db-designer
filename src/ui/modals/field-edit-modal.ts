@@ -1,7 +1,8 @@
 import { isAutoIncrementType, isIntegerLikeType, normalizeDataType } from "../../lib/data-types.ts";
 import { parseEnumValuesInput, normalizeField } from "../../domain/field.ts";
 import type { Store } from "../../state/store.ts";
-import { getTableById, safeName } from "../../state/store.ts";
+import { getTableById } from "../../state/store.ts";
+import { safeName } from "../../domain/ids.ts";
 import type { SelectControllers } from "../selects.ts";
 
 export function wireFieldEditModal(store: Store, selects: SelectControllers): {

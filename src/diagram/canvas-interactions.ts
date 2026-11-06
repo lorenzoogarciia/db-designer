@@ -1,41 +1,34 @@
 import type { Store } from "../state/store.ts";
 import { getTableById } from "../state/store.ts";
 import { applyTableCardTransform } from "./card-style.ts";
-import { BASE_PADDING, CANVAS_GUTTER } from "./constants.ts";
-import { estimateTableWidth, getTableHeight } from "./layout.ts";
 import type { DiagramController } from "./diagram-controller.ts";
 
 const EDGE_THRESHOLD = 48;
-const MAX_SCROLL_SPEED = 18;
-const SCENE_GROW_HEADROOM = 400;
+const MAX_EDGE_PAN_SPEED = 18;
+/** Pixeles por "linea" cuando la rueda informa en lineas (Firefox). */
+const WHEEL_LINE_HEIGHT = 16;
+/** Sensibilidad del zoom con rueda/pellizco: factor = exp(-deltaY * WHEEL_ZOOM_SPEED). */
+const WHEEL_ZOOM_SPEED = 0.0018;
 
 interface DragState {
   tableId: string;
   card: HTMLElement;
+  /** Punto agarrado dentro de la tabla, en coordenadas del mundo. */
   offsetX: number;
   offsetY: number;
   pendingX: number;
   pendingY: number;
   currentX: number;
   currentY: number;
-  tableWidth: number;
-  tableHeight: number;
   viewportLeft: number;
   viewportTop: number;
   viewportRight: number;
   viewportBottom: number;
-  scene: HTMLElement | null;
-  linesLayer: SVGSVGElement | null;
-  labelsLayer: SVGSVGElement | null;
-  sceneWidth: number;
-  sceneHeight: number;
 }
 
 interface PanState {
-  startX: number;
-  startY: number;
-  startScrollLeft: number;
-  startScrollTop: number;
+  lastX: number;
+  lastY: number;
   pendingX: number;
   pendingY: number;
 }
@@ -47,6 +40,8 @@ export function wireCanvasInteractions(
     onEditTable: (tableId: string) => void;
     onEditField: (tableId: string, fieldId: string) => void;
     onEditRelation: (relationId: string) => void;
+    /** Doble clic en una zona vacia del canvas: crear una tabla en ese punto del mundo. */
+    onCreateTableAt: (point: { x: number; y: number }) => void;
   },
 ): void {
   const diagramElement = diagram.getDiagramElement();
@@ -65,101 +60,50 @@ export function wireCanvasInteractions(
 
   function computeDragPosition(clientX: number, clientY: number): { x: number; y: number } | null {
     if (!dragState) return null;
-    const zoom = store.getState().zoom;
-    const logicalX = (clientX - dragState.viewportLeft + diagramElement.scrollLeft) / zoom;
-    const logicalY = (clientY - dragState.viewportTop + diagramElement.scrollTop) / zoom;
-    // Keep tables inside the scrollable scene (never negative logical coords).
+    // Canvas infinito: sin limites, las tablas pueden ir a coordenadas negativas.
+    const world = diagram.clientToWorld(clientX, clientY);
     return {
-      x: Math.max(8, logicalX - CANVAS_GUTTER - dragState.offsetX),
-      y: Math.max(8, logicalY - CANVAS_GUTTER - dragState.offsetY),
+      x: Math.round(world.x - dragState.offsetX),
+      y: Math.round(world.y - dragState.offsetY),
     };
   }
 
-  function expandSceneForDrag(x: number, y: number): void {
-    if (!dragState?.scene) return;
-    const zoom = store.getState().zoom;
-    const neededWidth = Math.ceil((x + dragState.tableWidth + BASE_PADDING + CANVAS_GUTTER * 2) * zoom) + SCENE_GROW_HEADROOM;
-    const neededHeight = Math.ceil((y + dragState.tableHeight + BASE_PADDING + CANVAS_GUTTER * 2) * zoom) + SCENE_GROW_HEADROOM;
-
-    if (neededWidth > dragState.sceneWidth) {
-      dragState.sceneWidth = neededWidth;
-      dragState.scene.style.width = `${neededWidth}px`;
-      dragState.linesLayer?.setAttribute("width", String(neededWidth));
-      dragState.labelsLayer?.setAttribute("width", String(neededWidth));
-    }
-    if (neededHeight > dragState.sceneHeight) {
-      dragState.sceneHeight = neededHeight;
-      dragState.scene.style.height = `${neededHeight}px`;
-      dragState.linesLayer?.setAttribute("height", String(neededHeight));
-      dragState.labelsLayer?.setAttribute("height", String(neededHeight));
-    }
-  }
-
-  function isNearEdge(clientX: number, clientY: number): boolean {
-    if (!dragState) return false;
-    return (
-      clientX < dragState.viewportLeft + EDGE_THRESHOLD ||
-      clientX > dragState.viewportRight - EDGE_THRESHOLD ||
-      clientY < dragState.viewportTop + EDGE_THRESHOLD ||
-      clientY > dragState.viewportBottom - EDGE_THRESHOLD
-    );
-  }
-
-  function applyEdgeAutoScroll(clientX: number, clientY: number): boolean {
-    if (!dragState) return false;
-    let scrolled = false;
-
+  /** Velocidad de desplazamiento automatico al acercar el puntero a un borde (px de pantalla). */
+  function edgePanVelocity(clientX: number, clientY: number): { dx: number; dy: number } {
+    if (!dragState) return { dx: 0, dy: 0 };
+    const intensity = (distance: number) => Math.max(0, 1 - distance / EDGE_THRESHOLD);
+    let dx = 0;
+    let dy = 0;
     if (clientX < dragState.viewportLeft + EDGE_THRESHOLD) {
-      const intensity = 1 - Math.max(0, (clientX - dragState.viewportLeft) / EDGE_THRESHOLD);
-      diagramElement.scrollLeft -= MAX_SCROLL_SPEED * intensity;
-      scrolled = true;
+      dx = MAX_EDGE_PAN_SPEED * intensity(clientX - dragState.viewportLeft);
     } else if (clientX > dragState.viewportRight - EDGE_THRESHOLD) {
-      const intensity = 1 - Math.max(0, (dragState.viewportRight - clientX) / EDGE_THRESHOLD);
-      diagramElement.scrollLeft += MAX_SCROLL_SPEED * intensity;
-      scrolled = true;
+      dx = -MAX_EDGE_PAN_SPEED * intensity(dragState.viewportRight - clientX);
     }
-
     if (clientY < dragState.viewportTop + EDGE_THRESHOLD) {
-      const intensity = 1 - Math.max(0, (clientY - dragState.viewportTop) / EDGE_THRESHOLD);
-      diagramElement.scrollTop -= MAX_SCROLL_SPEED * intensity;
-      scrolled = true;
+      dy = MAX_EDGE_PAN_SPEED * intensity(clientY - dragState.viewportTop);
     } else if (clientY > dragState.viewportBottom - EDGE_THRESHOLD) {
-      const intensity = 1 - Math.max(0, (dragState.viewportBottom - clientY) / EDGE_THRESHOLD);
-      diagramElement.scrollTop += MAX_SCROLL_SPEED * intensity;
-      scrolled = true;
+      dy = -MAX_EDGE_PAN_SPEED * intensity(dragState.viewportBottom - clientY);
     }
-
-    return scrolled;
+    return { dx, dy };
   }
 
   function dragTick(): void {
-    if (!dragState) {
-      dragRafId = null;
-      return;
-    }
+    dragRafId = null;
+    if (!dragState) return;
 
-    const nearEdge = isNearEdge(dragState.pendingX, dragState.pendingY);
-    const scrolled = nearEdge ? applyEdgeAutoScroll(dragState.pendingX, dragState.pendingY) : false;
+    const { dx, dy } = edgePanVelocity(dragState.pendingX, dragState.pendingY);
+    const panning = dx !== 0 || dy !== 0;
+    if (panning) diagram.panBy(dx, dy);
 
     const position = computeDragPosition(dragState.pendingX, dragState.pendingY);
-    if (!position) {
-      dragRafId = null;
-      return;
-    }
-
-    if (position.x !== dragState.currentX || position.y !== dragState.currentY) {
+    if (position && (position.x !== dragState.currentX || position.y !== dragState.currentY)) {
       dragState.currentX = position.x;
       dragState.currentY = position.y;
-      applyTableCardTransform(dragState.card, position.x, position.y, store.getState().zoom);
-      expandSceneForDrag(position.x, position.y);
+      applyTableCardTransform(dragState.card, position.x, position.y);
     }
 
-    if (nearEdge || scrolled) {
-      dragRafId = requestAnimationFrame(dragTick);
-      return;
-    }
-
-    dragRafId = null;
+    // Mientras el puntero siga en el borde, seguir desplazando aunque no se mueva el raton.
+    if (panning) dragRafId = requestAnimationFrame(dragTick);
   }
 
   function scheduleDragTick(): void {
@@ -177,8 +121,11 @@ export function wireCanvasInteractions(
   function panTick(): void {
     panRafId = null;
     if (!panState) return;
-    diagramElement.scrollLeft = panState.startScrollLeft - (panState.pendingX - panState.startX);
-    diagramElement.scrollTop = panState.startScrollTop - (panState.pendingY - panState.startY);
+    const dx = panState.pendingX - panState.lastX;
+    const dy = panState.pendingY - panState.lastY;
+    panState.lastX = panState.pendingX;
+    panState.lastY = panState.pendingY;
+    if (dx !== 0 || dy !== 0) diagram.panBy(dx, dy);
   }
 
   function schedulePanTick(): void {
@@ -199,16 +146,18 @@ export function wireCanvasInteractions(
 
     stopDragTick();
     dragState.card.classList.remove("is-dragging");
-    dragState.card.style.willChange = "";
     diagramElement.classList.remove("is-table-dragging");
     diagram.endTableDrag();
 
-    store.dispatch({
-      type: "UPDATE_TABLE_POSITION",
-      tableId: dragState.tableId,
-      x: dragState.currentX,
-      y: dragState.currentY,
-    });
+    const table = getTableById(store.getState(), dragState.tableId);
+    if (table && (table.x !== dragState.currentX || table.y !== dragState.currentY)) {
+      store.dispatch({
+        type: "UPDATE_TABLE_POSITION",
+        tableId: dragState.tableId,
+        x: dragState.currentX,
+        y: dragState.currentY,
+      });
+    }
 
     dragState = null;
   }
@@ -222,8 +171,16 @@ export function wireCanvasInteractions(
         if (!relation) return;
         const fromTable = getTableById(store.getState(), relation.fromTableId)?.name ?? "?";
         const toTable = getTableById(store.getState(), relation.toTableId)?.name ?? "?";
-        const fromField = store.getState().tables.find((t) => t.id === relation.fromTableId)?.fields.find((f) => f.id === relation.fromFieldId)?.name ?? "?";
-        const toField = store.getState().tables.find((t) => t.id === relation.toTableId)?.fields.find((f) => f.id === relation.toFieldId)?.name ?? "?";
+        const fromField =
+          store
+            .getState()
+            .tables.find((t) => t.id === relation.fromTableId)
+            ?.fields.find((f) => f.id === relation.fromFieldId)?.name ?? "?";
+        const toField =
+          store
+            .getState()
+            .tables.find((t) => t.id === relation.toTableId)
+            ?.fields.find((f) => f.id === relation.toFieldId)?.name ?? "?";
         const ok = window.confirm(`Eliminar la relacion ${fromTable}.${fromField} -> ${toTable}.${toField}?`);
         if (!ok) return;
         store.dispatch({ type: "REMOVE_RELATION", relationId });
@@ -263,75 +220,81 @@ export function wireCanvasInteractions(
       return;
     }
     if (action === "move-field-down" && target.dataset.tableId && target.dataset.fieldId) {
-      store.dispatch({ type: "MOVE_FIELD", tableId: target.dataset.tableId, fieldId: target.dataset.fieldId, direction: "down" });
+      store.dispatch({
+        type: "MOVE_FIELD",
+        tableId: target.dataset.tableId,
+        fieldId: target.dataset.fieldId,
+        direction: "down",
+      });
     }
   });
 
-  diagramElement.addEventListener("mousedown", (event) => {
-    if (event.button !== 0) return;
+  // Doble clic en una tabla (util en vista general, donde no hay botones): abrir su edicion.
+  diagramElement.addEventListener("dblclick", (event) => {
     const target = event.target as Element;
-    if (target.closest("[data-relation-id]") || target.closest("[data-action='delete-relation']")) return;
     if (target.closest("button")) return;
+    const card = target.closest<HTMLElement>(".table-card");
+    if (card?.dataset.tableId) {
+      handlers.onEditTable(card.dataset.tableId);
+      return;
+    }
+    if (target.closest("[data-relation-id]")) return;
+    handlers.onCreateTableAt(diagram.clientToWorld(event.clientX, event.clientY));
+  });
+
+  diagramElement.addEventListener("mousedown", (event) => {
+    if (event.button !== 0 && event.button !== 1) return;
+    const target = event.target as Element;
+    diagram.stopCameraAnimation();
+    // Boton central: desplazar siempre, incluso sobre una tabla.
+    const tableCard = event.button === 0 ? target.closest<HTMLElement>(".table-card") : null;
+    if (event.button === 0) {
+      if (target.closest("[data-relation-id]") || target.closest("[data-action='delete-relation']")) return;
+      if (target.closest("button")) return;
+    }
     event.preventDefault();
-    const tableCard = target.closest<HTMLElement>(".table-card");
     if (tableCard) {
       const tableId = tableCard.dataset.tableId;
       if (!tableId) return;
       const table = getTableById(store.getState(), tableId);
       if (!table) return;
 
-      const bounds = tableCard.getBoundingClientRect();
-      const zoom = store.getState().zoom;
-      const offsetX = (event.clientX - bounds.left) / zoom;
-      const offsetY = (event.clientY - bounds.top) / zoom;
-      const measuredWidth = tableCard.offsetWidth;
-      const measuredHeight = tableCard.offsetHeight;
-      const scene = diagramElement.querySelector<HTMLElement>("#diagram-scene");
-      const linesLayer = diagramElement.querySelector<SVGSVGElement>(".relation-lines-layer");
-      const labelsLayer = diagramElement.querySelector<SVGSVGElement>(".relation-labels-layer");
-
+      const grab = diagram.clientToWorld(event.clientX, event.clientY);
       diagram.beginTableDrag(tableId);
       tableCard.classList.add("is-dragging");
-      tableCard.style.willChange = "transform";
       diagramElement.classList.add("is-table-dragging");
 
       const next: DragState = {
         tableId,
         card: tableCard,
-        offsetX,
-        offsetY,
+        offsetX: grab.x - table.x,
+        offsetY: grab.y - table.y,
         pendingX: event.clientX,
         pendingY: event.clientY,
         currentX: table.x,
         currentY: table.y,
-        tableWidth: measuredWidth || estimateTableWidth(table),
-        tableHeight: measuredHeight || getTableHeight(table),
         viewportLeft: 0,
         viewportTop: 0,
         viewportRight: 0,
         viewportBottom: 0,
-        scene,
-        linesLayer,
-        labelsLayer,
-        sceneWidth: scene?.offsetWidth ?? 0,
-        sceneHeight: scene?.offsetHeight ?? 0,
       };
       cacheViewport(next);
       dragState = next;
-      expandSceneForDrag(table.x, table.y);
-      scheduleDragTick();
       return;
     }
 
     panState = {
-      startX: event.clientX,
-      startY: event.clientY,
-      startScrollLeft: diagramElement.scrollLeft,
-      startScrollTop: diagramElement.scrollTop,
+      lastX: event.clientX,
+      lastY: event.clientY,
       pendingX: event.clientX,
       pendingY: event.clientY,
     };
     diagramElement.classList.add("is-panning");
+  });
+
+  // Evita el autoscroll nativo del boton central.
+  diagramElement.addEventListener("auxclick", (event) => {
+    if (event.button === 1) event.preventDefault();
   });
 
   window.addEventListener("mousemove", (event) => {
@@ -353,17 +316,35 @@ export function wireCanvasInteractions(
     if (dragState) {
       endTableDrag();
     }
+    if (panState) panTick();
     stopPanTick();
     panState = null;
     diagramElement.classList.remove("is-panning");
   });
 
+  // Rueda: desplaza el canvas. Ctrl/Cmd + rueda (o pellizco en trackpad) hace zoom en el puntero.
+  diagramElement.addEventListener(
+    "wheel",
+    (event) => {
+      event.preventDefault();
+      diagram.stopCameraAnimation();
+      const unit = event.deltaMode === 1 ? WHEEL_LINE_HEIGHT : event.deltaMode === 2 ? diagramElement.clientHeight : 1;
+      const deltaX = event.deltaX * unit;
+      const deltaY = event.deltaY * unit;
+      if (event.ctrlKey || event.metaKey) {
+        diagram.zoomBy(Math.exp(-deltaY * WHEEL_ZOOM_SPEED), event.clientX, event.clientY);
+        return;
+      }
+      if (event.shiftKey && deltaX === 0) {
+        diagram.panBy(-deltaY, 0);
+        return;
+      }
+      diagram.panBy(-deltaX, -deltaY);
+    },
+    { passive: false },
+  );
+
   window.addEventListener("resize", () => {
     if (dragState) cacheViewport(dragState);
-    diagram.render();
-  });
-  window.visualViewport?.addEventListener("resize", () => {
-    if (dragState) cacheViewport(dragState);
-    diagram.render();
   });
 }

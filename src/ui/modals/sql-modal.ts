@@ -1,6 +1,7 @@
 import type { SqlDialect } from "../../lib/data-types.ts";
 import { filterProjectByTableIds, generateSql, sqlDialectLabel } from "../../services/sql-generator.ts";
 import type { Store } from "../../state/store.ts";
+import { showToast } from "../toast.ts";
 
 export function wireSqlModal(store: Store): void {
   const sqlModal = document.querySelector<HTMLDivElement>("#sql-modal");
@@ -46,6 +47,7 @@ export function wireSqlModal(store: Store): void {
   const modalOutput = sqlModalOutput;
   const tablesModal = exportTablesModal;
   const tablesList = exportTablesList;
+  const tablesTitle = exportTablesTitle;
   let pendingDialect: SqlDialect | null = null;
 
   function openSqlModal(dialect: SqlDialect, sql: string) {
@@ -98,12 +100,12 @@ export function wireSqlModal(store: Store): void {
   function openTablesModal(dialect: SqlDialect) {
     const { tables } = store.getState();
     if (tables.length === 0) {
-      alert("No hay tablas para exportar.");
+      showToast("No hay tablas para exportar.", "error");
       return;
     }
 
     pendingDialect = dialect;
-    exportTablesTitle.textContent = `Seleccionar tablas (${sqlDialectLabel(dialect)})`;
+    tablesTitle.textContent = `Seleccionar tablas (${sqlDialectLabel(dialect)})`;
     renderTableCheckboxes();
     tablesModal.classList.remove("hidden");
   }
@@ -113,7 +115,7 @@ export function wireSqlModal(store: Store): void {
 
     const selectedTableIds = getSelectedTableIds();
     if (selectedTableIds.size === 0) {
-      alert("Selecciona al menos una tabla.");
+      showToast("Selecciona al menos una tabla.", "error");
       return;
     }
 
@@ -150,9 +152,9 @@ export function wireSqlModal(store: Store): void {
   sqlModalCopy.addEventListener("click", async () => {
     try {
       await navigator.clipboard.writeText(modalOutput.value);
-      alert("SQL copiado al portapapeles.");
+      showToast("SQL copiado al portapapeles.", "success");
     } catch {
-      alert("No se pudo copiar automaticamente.");
+      showToast("No se pudo copiar automaticamente.", "error");
     }
   });
 

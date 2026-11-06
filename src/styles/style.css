@@ -10,6 +10,12 @@ html[data-theme="dark"] {
   --color-bg-combobox: #0f172a;
   --color-bg-combobox-search: #020617;
   --color-bg-diagram-gradient-start: #18284a;
+  --color-grid-dot: rgba(148, 163, 184, 0.16);
+  --color-overview-card: #1c2a44;
+  --color-rel-11: #34d399;
+  --color-rel-1n: #60a5fa;
+  --color-rel-nm: #fbbf24;
+  --color-legend-bg: rgba(15, 23, 42, 0.88);
   --color-bg-diagram-gradient-end: #0b1220;
   --color-bg-table: #1e293b;
   --color-bg-table-header: #1a2438;
@@ -65,6 +71,12 @@ html[data-theme="light"] {
   --color-bg-combobox: #ffffff;
   --color-bg-combobox-search: #f8fafc;
   --color-bg-diagram-gradient-start: #e3eaf2;
+  --color-grid-dot: rgba(71, 85, 105, 0.18);
+  --color-overview-card: #ffffff;
+  --color-rel-11: #059669;
+  --color-rel-1n: #2563eb;
+  --color-rel-nm: #d97706;
+  --color-legend-bg: rgba(247, 249, 252, 0.92);
   --color-bg-diagram-gradient-end: #f4f7fa;
   --color-bg-table: #ffffff;
   --color-bg-table-header: #f1f5f9;
@@ -348,11 +360,18 @@ button[type="submit"]:not(.neutral-btn):not(.danger-btn):hover,
   justify-content: flex-end;
 }
 
-#zoom-label {
-  min-width: 54px;
+#zoom-input {
+  width: 64px;
+  padding: 6px 4px;
   text-align: center;
   color: var(--color-text-accent);
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+#zoom-input:focus {
+  outline: 2px solid var(--color-primary-border);
+  outline-offset: 1px;
 }
 
 .diagram {
@@ -361,12 +380,14 @@ button[type="submit"]:not(.neutral-btn):not(.danger-btn):hover,
   min-height: 0;
   border: 1px solid var(--color-border);
   border-radius: 12px;
-  background: var(--color-bg-diagram-gradient-end);
-  overflow: auto;
+  background-color: var(--color-bg-diagram-gradient-end);
+  /* Rejilla de puntos: tamano y posicion los ajusta la camara para dar sensacion de lienzo infinito. */
+  background-image: radial-gradient(circle, var(--color-grid-dot) 1.2px, transparent 1.4px);
+  background-size: 24px 24px;
+  overflow: hidden;
   overscroll-behavior: contain;
+  touch-action: none;
   cursor: grab;
-  /* Promote scrollport; avoids repainting chrome while panning */
-  transform: translateZ(0);
 }
 
 .diagram.is-panning,
@@ -393,21 +414,28 @@ button[type="submit"]:not(.neutral-btn):not(.danger-btn):hover,
   transition: none;
 }
 
-.diagram-scene {
-  position: relative;
-  contain: layout style;
+/* Mundo del canvas: un unico transform (translate + scale) aplica la camara. */
+.diagram-world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  transform-origin: 0 0;
+  --zoom: 1;
+  --label-scale: 1;
 }
 
 .table-layer {
   position: absolute;
-  inset: 0;
+  left: 0;
+  top: 0;
   z-index: 10;
   pointer-events: none;
 }
 
 .relation-lines-layer {
   position: absolute;
-  inset: 0;
   z-index: 5;
   pointer-events: none;
   overflow: visible;
@@ -415,7 +443,6 @@ button[type="submit"]:not(.neutral-btn):not(.danger-btn):hover,
 
 .relation-labels-layer {
   position: absolute;
-  inset: 0;
   z-index: 20;
   pointer-events: none;
   overflow: visible;
@@ -428,8 +455,16 @@ button[type="submit"]:not(.neutral-btn):not(.danger-btn):hover,
 
 .relation-lines-layer path {
   stroke: var(--color-relation-stroke);
-  stroke-width: 2.5;
+  /* Grosor en pantalla: lo ajusta la camara (crece al alejar la vista). */
+  /* Grosor en unidades del mundo = grosor deseado en pantalla / zoom (lo calcula la camara).
+     No se usa vector-effect: no compensa el transform CSS del contenedor del mundo. */
+  stroke-width: var(--line-world, 2.5px);
   fill: none;
+  /* Grosor constante en pantalla a cualquier zoom. */
+}
+
+.relation-label-scale {
+  transform: scale(var(--label-scale));
 }
 
 .relation-path {
@@ -438,8 +473,8 @@ button[type="submit"]:not(.neutral-btn):not(.danger-btn):hover,
 }
 
 .relation-path:hover {
-  stroke: var(--color-relation-stroke-hover);
-  stroke-width: 3;
+  stroke-width: calc(var(--line-world, 2.5px) + 1.5px / var(--zoom, 1));
+  filter: brightness(1.25);
 }
 
 .relation-anchor {
@@ -499,16 +534,16 @@ button[type="submit"]:not(.neutral-btn):not(.danger-btn):hover,
 }
 
 .rel-one-many {
-  stroke-dasharray: 8 4;
+  stroke-dasharray: calc(8px / var(--zoom, 1)) calc(4px / var(--zoom, 1));
 }
 
 .rel-many-many {
-  stroke-dasharray: 3 5;
+  stroke-dasharray: calc(3px / var(--zoom, 1)) calc(5px / var(--zoom, 1));
 }
 
 .relation-label-box {
   fill: var(--color-relation-label-bg);
-  stroke: var(--color-relation-label-stroke);
+  stroke: var(--rel-color, var(--color-relation-label-stroke));
 }
 
 .relation-label-text {
@@ -529,6 +564,8 @@ button[type="submit"]:not(.neutral-btn):not(.danger-btn):hover,
   position: absolute;
   left: 0;
   top: 0;
+  box-sizing: border-box;
+  overflow: hidden;
   width: max-content;
   min-width: 260px;
   background: var(--color-bg-table);
@@ -567,7 +604,10 @@ button[type="submit"]:not(.neutral-btn):not(.danger-btn):hover,
 }
 
 .table-card-header {
-  padding: 14px 16px;
+  box-sizing: border-box;
+  /* Alto fijo: debe coincidir con TABLE_HEADER_HEIGHT (64) menos el borde de la tarjeta. */
+  height: 62px;
+  padding: 0 16px;
   border-bottom: 1px solid var(--color-border-strong);
   background: var(--color-bg-table-header);
   display: flex;
@@ -608,8 +648,10 @@ button[type="submit"]:not(.neutral-btn):not(.danger-btn):hover,
   align-items: center;
   flex-wrap: nowrap;
   gap: 16px;
-  padding: 10px 16px;
-  min-height: 42px;
+  box-sizing: border-box;
+  /* Alto fijo: debe coincidir con TABLE_ROW_HEIGHT para que las flechas apunten al campo. */
+  height: 42px;
+  padding: 0 16px;
   border-top: 1px solid var(--color-bg-table-row-border);
 }
 
@@ -746,144 +788,43 @@ button[type="submit"]:not(.neutral-btn):not(.danger-btn):hover,
   height: auto;
 }
 
-.table-edit-card {
-  width: min(640px, 96vw);
-  height: auto;
-  max-height: min(85vh, 720px);
-}
 
-.table-edit-relations {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-height: 0;
-}
 
-.table-edit-relations-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-}
 
-.table-edit-relations-header h4 {
-  margin: 0;
-  font-size: 0.95rem;
-  color: var(--color-text);
-}
 
-.table-edit-relations-count {
-  color: var(--color-text-muted);
-  font-size: 0.85rem;
-}
 
-.table-edit-relations-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  overflow-y: auto;
-  min-height: 72px;
-  max-height: min(42vh, 360px);
-  padding: 8px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: 8px;
-  background: var(--color-bg-input);
-}
 
-.table-edit-relations-empty {
-  margin: 0;
-  padding: 12px 8px;
-  color: var(--color-text-muted);
-  font-size: 0.9rem;
-}
 
-.table-edit-relation-item {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  background: var(--color-bg-group);
-}
 
-.table-edit-relation-main {
-  min-width: 0;
-  flex: 1;
-}
 
-.table-edit-relation-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 6px;
-}
 
-.table-edit-relation-kind,
-.table-edit-relation-direction {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  border: 1px solid var(--color-border-strong);
-}
 
-.table-edit-relation-kind {
-  color: var(--color-text-accent);
-  background: var(--color-bg-input);
-}
 
-.table-edit-relation-direction.is-out {
-  color: #16a34a;
-  border-color: rgba(22, 163, 74, 0.35);
-}
 
-.table-edit-relation-direction.is-in {
-  color: #2563eb;
-  border-color: rgba(37, 99, 235, 0.35);
-}
 
-html[data-theme="dark"] .table-edit-relation-direction.is-out {
-  color: #4ade80;
-}
 
-html[data-theme="dark"] .table-edit-relation-direction.is-in {
-  color: #93c5fd;
-}
 
-.table-edit-relation-summary {
-  margin: 0 0 4px;
-  font-size: 0.92rem;
-  color: var(--color-text);
-  word-break: break-word;
-}
 
-.table-edit-relation-side {
-  margin: 0;
-  font-size: 0.8rem;
-  color: var(--color-text-muted);
-}
 
-.table-edit-relation-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  flex-shrink: 0;
-}
 
-@media (max-width: 560px) {
-  .table-edit-relation-item {
-    flex-direction: column;
-  }
 
-  .table-edit-relation-actions {
-    flex-direction: row;
-    width: 100%;
-  }
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 .sql-export-tables-card {
   width: min(480px, 96vw);
@@ -1078,4 +1019,677 @@ html[data-theme="dark"] .table-edit-relation-direction.is-in {
     max-height: none;
     height: auto;
   }
+}
+
+/* Importar SQL */
+.sql-import-card {
+  width: min(860px, 96vw);
+  height: min(86vh, 820px);
+}
+
+.sql-import-hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+#sql-import-input {
+  flex: 1;
+  min-height: 220px;
+  resize: none;
+  background: var(--color-bg-sql-output);
+  font-family: Consolas, "Courier New", monospace;
+  line-height: 1.4;
+  white-space: pre;
+}
+
+.sql-import-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.9rem;
+}
+
+.sql-import-summary:empty {
+  display: none;
+}
+
+.sql-import-headline {
+  margin: 0;
+  font-weight: 600;
+}
+
+.sql-import-warnings {
+  max-height: 140px;
+  overflow: auto;
+  color: var(--color-text-muted);
+}
+
+.sql-import-warnings summary {
+  cursor: pointer;
+  color: var(--color-text-label);
+}
+
+.sql-import-warnings ul {
+  margin: 6px 0 0;
+  padding-left: 20px;
+}
+
+.sql-import-target {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.sql-import-target > :last-child {
+  grid-column: 1 / -1;
+}
+
+.sql-import-actions {
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sql-import-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@media (max-width: 560px) {
+  .sql-import-target {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Avisos (toasts) */
+.toast-container {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  max-width: min(420px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  cursor: pointer;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border-strong);
+  border-left: 4px solid var(--color-primary-border);
+  background: var(--color-bg-modal);
+  color: var(--color-text);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  font-size: 0.9rem;
+  line-height: 1.35;
+  animation: toast-in 180ms ease-out;
+  transition:
+    opacity 220ms ease,
+    transform 220ms ease;
+}
+
+.toast-success {
+  border-left-color: #16a34a;
+}
+
+.toast-error {
+  border-left-color: #dc2626;
+}
+
+.toast-leaving {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Niveles de detalle del canvas (segun el zoom)                       */
+/* ------------------------------------------------------------------ */
+
+.table-card-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.table-card-count,
+.field-meta-short {
+  display: none;
+}
+
+.field-order-btn {
+  height: 28px;
+}
+
+/* Compacto: sin botones y con el texto compensado para que se siga leyendo. */
+.diagram-world[data-lod="compact"] .table-actions,
+.diagram-world[data-lod="compact"] .field-order-actions,
+.diagram-world[data-lod="compact"] .table-action-btn,
+.diagram-world[data-lod="compact"] .field-meta {
+  display: none;
+}
+
+.diagram-world[data-lod="compact"] .field-meta-short {
+  display: inline;
+}
+
+.diagram-world[data-lod="compact"] .table-card h3 {
+  font-size: min(calc(14px / var(--zoom)), 40px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.diagram-world[data-lod="compact"] .table-card li {
+  gap: 10px;
+}
+
+.diagram-world[data-lod="compact"] .field-left {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.diagram-world[data-lod="compact"] .table-card .field-name {
+  font-size: min(calc(11px / var(--zoom)), 30px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.diagram-world[data-lod="compact"] .field-right {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.diagram-world[data-lod="compact"] .field-meta-short {
+  font-size: min(calc(9.5px / var(--zoom)), 24px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Vista general: cada tabla es un bloque con su nombre. El nombre tiene el MISMO tamano en
+   pantalla para todas las tablas (solo depende del zoom) y puede sobresalir de tarjetas pequenas. */
+.diagram-world[data-lod="overview"] .table-card {
+  background: var(--color-overview-card);
+  border-width: 2px;
+  box-shadow: none;
+  overflow: visible;
+  /* Sin "paint" para que el nombre pueda sobresalir de la tarjeta. */
+  contain: layout style;
+}
+
+.diagram-world[data-lod="overview"] .table-card ul,
+.diagram-world[data-lod="overview"] .table-actions {
+  display: none;
+}
+
+.diagram-world[data-lod="overview"] .table-card-header {
+  height: 100%;
+  justify-content: center;
+  border-bottom: none;
+  padding: 0;
+  background: transparent;
+  overflow: visible;
+}
+
+.diagram-world[data-lod="overview"] .table-card-title {
+  align-items: center;
+  text-align: center;
+  /* Ancho maximo fijo en pantalla: los nombres largos se parten por los "_". */
+  max-width: calc(200px / var(--zoom));
+  padding: calc(2px / var(--zoom)) calc(6px / var(--zoom));
+  border-radius: calc(6px / var(--zoom));
+  background: var(--color-overview-card);
+}
+
+.diagram-world[data-lod="overview"] .table-card h3 {
+  font-size: calc(var(--overview-name-size, 14px) / var(--zoom));
+  line-height: 1.15;
+  white-space: normal;
+  /* Solo se parte por los <wbr> (tras cada "_"), nunca a mitad de palabra. */
+  overflow-wrap: normal;
+  word-break: keep-all;
+}
+
+.diagram-world[data-lod="overview"] .table-card-count {
+  display: block;
+  margin-top: 0.15em;
+  color: var(--color-text-muted);
+  font-size: calc(10.5px / var(--zoom));
+  white-space: nowrap;
+}
+
+.diagram-world[data-lod="overview"] .relation-labels-layer {
+  display: none;
+}
+
+.diagram-world[data-lod="overview"] .relation-lines-layer .relation-path {
+  /* Lineas continuas: los guiones se pierden con la vista muy alejada. */
+  stroke-dasharray: none;
+}
+
+.diagram-world[data-lod="overview"] .table-card.is-focused {
+  outline-width: calc(3px / var(--zoom));
+}
+
+/* ------------------------------------------------------------------ */
+/* Tipos de relacion: color + simbolos de cardinalidad                 */
+/* ------------------------------------------------------------------ */
+
+.rel-one-one,
+.rel-color-11 {
+  --rel-color: var(--color-rel-11);
+}
+
+.rel-one-many,
+.rel-color-1n {
+  --rel-color: var(--color-rel-1n);
+}
+
+.rel-many-many,
+.rel-color-nm {
+  --rel-color: var(--color-rel-nm);
+}
+
+.relation-lines-layer .relation-path {
+  stroke: var(--rel-color, var(--color-relation-stroke));
+}
+
+/* Simbolos de los extremos: barra = "uno", pata de gallo = "muchos". Van en unidades del marcador. */
+.relation-lines-layer .card-marker path {
+  fill: none;
+  stroke: var(--rel-color);
+  /* Mismo grosor en pantalla que la linea (lo calcula la camara). */
+  stroke-width: var(--marker-stroke, 2.2);
+  stroke-linecap: round;
+  stroke-dasharray: none;
+  vector-effect: none;
+}
+
+.relation-label-bundle .relation-label-text {
+  fill: var(--rel-color, var(--color-relation-label-text));
+}
+
+/* Leyenda fija en la esquina del canvas */
+.diagram-legend {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  background: var(--color-legend-bg);
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  pointer-events: none;
+  user-select: none;
+}
+
+.diagram-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.diagram-legend-row svg path {
+  fill: none;
+  stroke: var(--rel-color);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.diagram-legend-row span {
+  color: var(--rel-color);
+}
+
+/* La clase de tipo en las etiquetas solo aporta el color, no los guiones de la linea. */
+.relation-labels-layer .relation-label-bundle {
+  stroke-dasharray: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* Creador de tablas (nombre + campos + relaciones en un solo paso)    */
+/* ------------------------------------------------------------------ */
+
+.table-create-card {
+  width: min(1080px, 96vw);
+  height: auto;
+  max-height: 92vh;
+}
+
+.tc-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.tc-section-label {
+  font-weight: 600;
+  color: var(--color-text-label);
+}
+
+.tc-name-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.tc-table-name {
+  flex: 1 1 280px;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.tc-name-preview {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.tc-name-preview.is-error {
+  color: #f87171;
+}
+
+.tc-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.tc-section-head h4 {
+  margin: 0;
+}
+
+.tc-hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+}
+
+/* Columnas: campo | tipo | opciones | por defecto | referencia | quitar */
+.tc-field-head,
+.tc-field-main {
+  display: grid;
+  grid-template-columns: 58px minmax(130px, 1.3fr) minmax(130px, 1fr) auto minmax(90px, 0.8fr) minmax(170px, 1.4fr) 34px;
+  gap: 8px;
+  align-items: center;
+}
+
+.tc-field-head {
+  padding: 0 10px;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.tc-fields,
+.tc-nm {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  background: var(--color-bg-group);
+}
+
+.tc-field.has-reference {
+  border-left: 3px solid var(--color-rel-1n);
+}
+
+.tc-field input,
+.tc-field select,
+.tc-nm-row select {
+  padding: 6px 8px;
+  min-width: 0;
+}
+
+.tc-name {
+  font-weight: 600;
+}
+
+.tc-checks {
+  display: flex;
+  gap: 4px;
+}
+
+.tc-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 6px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.tc-check input {
+  margin: 0;
+  padding: 0;
+}
+
+.tc-check:has(input:checked) {
+  color: var(--color-text-on-primary);
+  background: var(--color-primary);
+  border-color: var(--color-primary-border);
+}
+
+.tc-check:has(input:disabled) {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.tc-remove {
+  width: 34px;
+  height: 32px;
+  padding: 0;
+}
+
+.tc-subrow,
+.tc-nm-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+}
+
+.tc-subrow[hidden] {
+  display: none;
+}
+
+.tc-subrow-label {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.tc-enum {
+  flex: 1 1 300px;
+}
+
+.tc-reference-hint {
+  color: var(--color-rel-1n);
+  font-weight: 600;
+}
+
+.tc-nm-row {
+  padding: 6px 10px;
+  border: 1px solid var(--color-border-strong);
+  border-left: 3px solid var(--color-rel-nm);
+  border-radius: 8px;
+  background: var(--color-bg-group);
+}
+
+.tc-nm-row .tc-reference-hint {
+  color: var(--color-rel-nm);
+  flex: 1 1 auto;
+}
+
+.tc-add {
+  align-self: flex-start;
+}
+
+.tc-messages:empty {
+  display: none;
+}
+
+.tc-error,
+.tc-warning {
+  margin: 0;
+  font-size: 0.88rem;
+}
+
+.tc-error {
+  color: #f87171;
+}
+
+.tc-warning {
+  color: #fbbf24;
+}
+
+.tc-actions {
+  gap: 8px;
+}
+
+.tc-submit kbd {
+  margin-left: 8px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.18);
+  font-size: 0.72rem;
+  font-family: inherit;
+}
+
+@media (max-width: 860px) {
+  .tc-field-head {
+    display: none;
+  }
+
+  .tc-field-main {
+    grid-template-columns: 58px 1fr 1fr 34px;
+  }
+
+  .tc-field-main .tc-checks,
+  .tc-field-main .tc-default,
+  .tc-field-main .tc-reference {
+    grid-column: span 4;
+  }
+}
+
+/* Creador/editor de tablas: orden de campos, relaciones entrantes y acciones de edicion */
+.tc-moves {
+  display: flex;
+  gap: 2px;
+}
+
+.tc-move {
+  width: 28px;
+  height: 32px;
+  padding: 0;
+  font-size: 0.9rem;
+}
+
+.tc-incoming-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tc-incoming {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--color-border-strong);
+  border-left: 3px solid var(--rel-color);
+  border-radius: 8px;
+  background: var(--color-bg-group);
+  font-size: 0.88rem;
+}
+
+.tc-incoming-kind {
+  color: var(--rel-color);
+  font-weight: 700;
+}
+
+.tc-incoming-text {
+  font-weight: 600;
+}
+
+.tc-incoming-status {
+  flex: 1 1 auto;
+  color: #fbbf24;
+  font-size: 0.8rem;
+}
+
+.tc-incoming.is-lost .tc-incoming-text {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.tc-incoming-btn {
+  padding: 4px 10px;
+}
+
+.tc-actions-spacer {
+  flex: 1 1 auto;
+}
+
+/* Los botones secundarios y de peligro del editor no deben heredar el estilo primario de .modal-actions */
+.tc-actions .neutral-btn {
+  background: var(--color-bg-neutral-btn);
+  border-color: var(--color-border-strong);
+  color: var(--color-text);
+}
+
+.tc-actions .neutral-btn:hover {
+  background: var(--color-bg-neutral-btn-hover);
+}
+
+.tc-actions .danger-btn {
+  background: var(--color-danger);
+  border-color: var(--color-danger-border);
+  color: var(--color-text-on-primary);
+}
+
+.tc-actions .danger-btn:hover {
+  background: var(--color-danger-hover);
 }

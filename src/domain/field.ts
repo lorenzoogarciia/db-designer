@@ -34,10 +34,14 @@ export function formatDefaultForSql(value: string): string {
   const upper = trimmed.toUpperCase();
   if (upper === "NULL") return "NULL";
   if (
-    /^(CURRENT_TIMESTAMP|CURRENT_DATE|CURRENT_TIME|LOCALTIME|LOCALTIMESTAMP|NOW\(\)|GETDATE\(\)|SYSDATETIME\(\)|SYSUTCDATETIME\(\)|UUID_GENERATE_V4\(\)|GEN_RANDOM_UUID\(\)|TRUE|FALSE)$/i.test(
+    /^(CURRENT_TIMESTAMP|CURRENT_DATE|CURRENT_TIME|LOCALTIME|LOCALTIMESTAMP|NOW\(\)|GETDATE\(\)|SYSDATETIME\(\)|SYSUTCDATETIME\(\)|UUID_GENERATE_V4\(\)|GEN_RANDOM_UUID\(\)|UUID\(\)|NEWID\(\)|TRUE|FALSE)$/i.test(
       trimmed,
     )
   ) {
+    return trimmed;
+  }
+  // Llamadas a funcion o expresiones entre parentesis: CURRENT_TIMESTAMP(6), (UUID()), uuid_generate_v4()
+  if (/^[A-Za-z_][\w.]*\(.*\)$/.test(trimmed) || /^\(.*\)$/.test(trimmed)) {
     return trimmed;
   }
   if (/^-?\d+(\.\d+)?$/.test(trimmed)) {

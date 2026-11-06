@@ -10,11 +10,12 @@ import type { FkReferentialAction, RelationKind } from "../../domain/types.ts";
 import { fieldTypeLabel } from "../../diagram/layout.ts";
 import type { Store } from "../../state/store.ts";
 import { getFieldName, getTableById } from "../../state/store.ts";
+import { showToast } from "../toast.ts";
 
 const RELATION_KIND_OPTIONS: SelectOption[] = [
   { value: "1:1", label: "1:1 (uno a uno)" },
   { value: "1:N", label: "1:N (uno a muchos)" },
-  { value: "N:M", label: "N:M (muchos a muchos)" },
+  { value: "N:M", label: "N:M (crea tabla intermedia)" },
 ];
 
 const FK_ACTION_OPTIONS: SelectOption[] = FK_REFERENTIAL_ACTIONS.map((action) => ({
@@ -186,14 +187,31 @@ export function wireRelationEditModal(store: Store): {
     const onUpdate: FkReferentialAction = isFkReferentialAction(onUpdateRaw) ? onUpdateRaw : DEFAULT_ON_UPDATE;
 
     if (!fromTableId || !toTableId || !fromFieldId || !toFieldId || fromTableId === toTableId) {
-      window.alert("Selecciona tablas y campos validos. Origen y destino deben ser tablas distintas.");
+      showToast("Selecciona tablas y campos validos. Origen y destino deben ser tablas distintas.", "error");
+      return;
+    }
+
+    if (kind === "N:M") {
+      const tableCountBefore = store.getState().tables.length;
+      store.dispatch({
+        type: "ADD_MANY_TO_MANY",
+        relation: { fromTableId, fromFieldId, toTableId, toFieldId, onDelete, onUpdate },
+        replaceRelationId: editingRelationId,
+      });
+      const { tables } = store.getState();
+      if (tables.length === tableCountBefore) {
+        showToast("No se pudo crear la tabla intermedia.", "error");
+        return;
+      }
+      showToast(`Relacion convertida a N:M con la tabla intermedia "${tables[tables.length - 1].name}".`, "success");
+      modalEl.classList.add("hidden");
       return;
     }
 
     const newRelationId = buildRelationId(fromTableId, fromFieldId, toTableId, toFieldId);
     const state = store.getState();
     if (state.relations.some((relation) => relation.id === newRelationId && relation.id !== editingRelationId)) {
-      window.alert("Ya existe una relacion con esos extremos.");
+      showToast("Ya existe una relacion con esos extremos.", "error");
       return;
     }
 
@@ -214,7 +232,7 @@ export function wireRelationEditModal(store: Store): {
     });
 
     if (store.getState().relations === before) {
-      window.alert("No se pudo actualizar la relacion.");
+      showToast("No se pudo actualizar la relacion.", "error");
       return;
     }
 

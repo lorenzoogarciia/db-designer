@@ -3,8 +3,6 @@ import type { FieldAnchor } from "../lib/relation-routing.ts";
 import { clamp } from "../domain/ids.ts";
 import type { Field, RelationKind, Table } from "../domain/types.ts";
 import {
-  BASE_PADDING,
-  CANVAS_GUTTER,
   TABLE_HEADER_HEIGHT,
   TABLE_MIN_WIDTH,
   TABLE_ORIGIN_PADDING,
@@ -58,36 +56,6 @@ export function getTableHeight(table: Table): number {
 export type TableWidthResolver = (table: Table) => number;
 export type TableHeightResolver = (table: Table) => number;
 
-export function getCanvasBounds(
-  tables: Table[],
-  zoom: number,
-  viewportWidth: number,
-  viewportHeight: number,
-  getTableWidth: TableWidthResolver,
-) {
-  const contentRight =
-    tables.length === 0
-      ? 700
-      : Math.max(...tables.map((table) => table.x + getTableWidth(table) + BASE_PADDING));
-  const contentBottom =
-    tables.length === 0
-      ? 500
-      : Math.max(...tables.map((table) => table.y + getTableHeight(table) + BASE_PADDING));
-  const maxRight = Math.max(700, contentRight) + CANVAS_GUTTER * 2;
-  const maxBottom = Math.max(500, contentBottom) + CANVAS_GUTTER * 2;
-  // Match content bounds: gutter on both left/top and right/bottom.
-  const minLogicalWidth = viewportWidth / zoom + CANVAS_GUTTER * 2;
-  const minLogicalHeight = viewportHeight / zoom + CANVAS_GUTTER * 2;
-  const logicalWidth = Math.max(maxRight, minLogicalWidth);
-  const logicalHeight = Math.max(maxBottom, minLogicalHeight);
-  return {
-    logicalWidth,
-    logicalHeight,
-    scaledWidth: Math.ceil(logicalWidth * zoom),
-    scaledHeight: Math.ceil(logicalHeight * zoom),
-  };
-}
-
 export function getTablesLogicalBounds(tables: Table[], getTableWidth: TableWidthResolver) {
   if (tables.length === 0) {
     return { minX: 0, minY: 0, maxX: 800, maxY: 600, width: 800, height: 600 };
@@ -97,17 +65,6 @@ export function getTablesLogicalBounds(tables: Table[], getTableWidth: TableWidt
   const maxX = Math.max(...tables.map((table) => table.x + getTableWidth(table)));
   const maxY = Math.max(...tables.map((table) => table.y + getTableHeight(table)));
   return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
-}
-
-export function ensureTablePositions(tables: Table[]): Table[] {
-  return tables.map((table, index) => {
-    if (typeof table.x === "number" && typeof table.y === "number") return table;
-    return {
-      ...table,
-      x: 24 + (index % 2) * 400,
-      y: 24 + Math.floor(index / 2) * 280,
-    };
-  });
 }
 
 /**
@@ -196,4 +153,75 @@ export function relationLaneKey(relation: { fromTableId: string; fromFieldId: st
   return `${relation.fromTableId}:${relation.fromFieldId}->${relation.toTableId}:${relation.toFieldId}`;
 }
 
-export { clamp, CANVAS_GUTTER };
+export { clamp };
+
+interface Box {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Busca la posicion libre mas cercana a (preferredX, preferredY) para una tabla de
+ * width x height, recorriendo anillos alrededor del punto preferido.
+ */
+export function findFreeTablePosition(
+  occupied: Box[],
+  width: number,
+  height: number,
+  preferredX: number,
+  preferredY: number,
+  margin = 40,
+  step = 40,
+): { x: number; y: number } {
+  const collides = (x: number, y: number) =>
+    occupied.some(
+      (box) =>
+        x < box.x + box.width + margin &&
+        x + width + margin > box.x &&
+        y < box.y + box.height + margin &&
+        y + height + margin > box.y,
+    );
+  const startX = Math.round(preferredX);
+  const startY = Math.round(preferredY);
+  if (!collides(startX, startY)) return { x: startX, y: startY };
+  for (let ring = 1; ring <= 120; ring += 1) {
+    const candidates: Array<{ x: number; y: number }> = [];
+    for (let offset = -ring; offset <= ring; offset += 1) {
+      candidates.push(
+        { x: startX + offset * step, y: startY + ring * step },
+        { x: startX + offset * step, y: startY - ring * step },
+        { x: startX + ring * step, y: startY + offset * step },
+        { x: startX - ring * step, y: startY + offset * step },
+      );
+    }
+    candidates.sort(
+      (a, b) => Math.hypot(a.x - startX, a.y - startY) - Math.hypot(b.x - startX, b.y - startY),
+    );
+    const free = candidates.find((candidate) => !collides(candidate.x, candidate.y));
+    if (free) return free;
+  }
+  return { x: startX, y: startY };
+}
+
+/**
+ * Posicion para una tabla nueva: lo mas cerca posible del centro de sus tablas relacionadas
+ * (donde haya hueco libre). Sin relaciones, cerca de `fallback` (p. ej. el centro de la vista).
+ */
+export function placeNearRelated(
+  occupied: Box[],
+  width: number,
+  height: number,
+  related: Box[],
+  fallback: { x: number; y: number },
+): { x: number; y: number } {
+  const anchor =
+    related.length > 0
+      ? {
+          x: related.reduce((sum, box) => sum + box.x + box.width / 2, 0) / related.length,
+          y: related.reduce((sum, box) => sum + box.y + box.height / 2, 0) / related.length,
+        }
+      : fallback;
+  return findFreeTablePosition(occupied, width, height, anchor.x - width / 2, anchor.y - height / 2, 60, 40);
+}
