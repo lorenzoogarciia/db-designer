@@ -2,6 +2,7 @@ import { generateId } from "../../domain/ids.ts";
 import { parseSqlSchema, type SqlImportResult } from "../../services/sql-parser.ts";
 import type { Store } from "../../state/store.ts";
 import { getActiveProject } from "../../state/store.ts";
+import { confirmDialog } from "../dialog.ts";
 import { showToast } from "../toast.ts";
 
 function query<T extends Element>(selector: string): T {
@@ -89,14 +90,19 @@ export function wireSqlImportModal(store: Store, options: { onImported: () => vo
     modal.classList.add("hidden");
   }
 
-  function confirmImport() {
+  async function confirmImport() {
     parseNow();
     if (!result || result.tables.length === 0) return;
     const project = { tables: result.tables, relations: result.relations, zoom: 1 };
 
     if (targetMode() === "replace") {
       const active = getActiveProject(store.getState());
-      const ok = window.confirm(`Se reemplazaran todas las tablas del proyecto "${active.name}". ¿Continuar?`);
+      const ok = await confirmDialog({
+        title: `¿Reemplazar "${active.name}"?`,
+        message: "Se sustituirán todas sus tablas y relaciones por las del script. No se puede deshacer.",
+        confirmLabel: "Reemplazar",
+        danger: true,
+      });
       if (!ok) return;
       store.dispatch({ type: "IMPORT_PROJECT", project: { ...project, name: active.name }, mergeIntoExistingId: active.id });
     } else {
@@ -137,5 +143,5 @@ export function wireSqlImportModal(store: Store, options: { onImported: () => vo
       showToast("No se pudo leer el archivo.", "error");
     }
   });
-  confirmButton.addEventListener("click", confirmImport);
+  confirmButton.addEventListener("click", () => void confirmImport());
 }

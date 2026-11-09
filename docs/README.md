@@ -10,7 +10,7 @@ Documentación para desarrollar el proyecto. La documentación de uso está en e
 | [relaciones.md](relaciones.md) | Cambiar cómo se dibujan o enrutan las relaciones, la notación o las tablas N:M |
 | [sql.md](sql.md) | Cambiar el SQL generado o el importador de DDL |
 | [editor-de-tablas.md](editor-de-tablas.md) | Cambiar la creación o edición de tablas |
-| [interfaz.md](interfaz.md) | Tocar el panel lateral, modales, atajos, temas, avisos o la exportación PNG |
+| [interfaz.md](interfaz.md) | Tocar el sistema de diseño (tokens, botones, campos, iconos, tipografías), la barra superior, el panel lateral, menús, modales, diálogos, atajos, temas, avisos o la exportación PNG |
 | [desarrollo.md](desarrollo.md) | Escribir tests, verificar en el navegador o consultar limitaciones y pendientes |
 
 ## Mantenimiento

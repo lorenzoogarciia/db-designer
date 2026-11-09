@@ -1,42 +1,22 @@
-import {
-  applyTheme,
-  getActiveTheme,
-  getStoredTheme,
-  themeToggleIcon,
-  themeToggleLabel,
-  toggleTheme,
-  type AppTheme,
-} from "../lib/theme.ts";
+import { applyTheme, getActiveTheme, getStoredTheme, themeToggleLabel, toggleTheme, type AppTheme } from "../lib/theme.ts";
+import { icon } from "./icons.ts";
 
 export function wireThemeToggles(): void {
-  const themeToggleButton = document.querySelector<HTMLButtonElement>("#theme-toggle-btn");
-  const themeToggleDiagramButton = document.querySelector<HTMLButtonElement>("#theme-toggle-diagram-btn");
-
-  if (!themeToggleButton || !themeToggleDiagramButton) {
-    throw new Error("No se encontraron botones de tema");
-  }
-
-  const headerToggle = themeToggleButton;
-  const diagramToggle = themeToggleDiagramButton;
+  const toggles = Array.from(document.querySelectorAll<HTMLButtonElement>(".theme-toggle-btn"));
+  if (toggles.length === 0) throw new Error("No se encontró el botón de tema");
 
   function updateThemeToggleButtons(theme: AppTheme = getActiveTheme()) {
     const label = themeToggleLabel(theme);
-    const icon = themeToggleIcon(theme);
-    headerToggle.setAttribute("aria-label", label);
-    headerToggle.title = label;
-    headerToggle.textContent = icon;
-    diagramToggle.setAttribute("aria-label", label);
-    diagramToggle.title = label;
-    diagramToggle.textContent = icon;
-  }
-
-  function handleThemeToggle() {
-    const nextTheme = toggleTheme();
-    updateThemeToggleButtons(nextTheme);
+    // Se muestra el tema al que se cambia: sol en oscuro, luna en claro.
+    const markup = icon(theme === "dark" ? "sun" : "moon", 17);
+    toggles.forEach((toggle) => {
+      toggle.setAttribute("aria-label", label);
+      toggle.title = label;
+      toggle.innerHTML = markup;
+    });
   }
 
   applyTheme(getStoredTheme());
   updateThemeToggleButtons();
-  headerToggle.addEventListener("click", handleThemeToggle);
-  diagramToggle.addEventListener("click", handleThemeToggle);
+  toggles.forEach((toggle) => toggle.addEventListener("click", () => updateThemeToggleButtons(toggleTheme())));
 }

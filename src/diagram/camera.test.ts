@@ -12,7 +12,7 @@ import {
   isWorldRectVisible,
   parseZoomInput,
   RELATION_LINE_WIDTH,
-  RELATION_LINE_WIDTH_MAX,
+  RELATION_LINE_WIDTH_MIN,
   relationLineWidth,
   screenToWorld,
   zoomAround,
@@ -67,30 +67,34 @@ describe("camara", () => {
     expect(detailLevelForZoom(0.59)).toBe("compact");
   });
 
-  it("engrosa las lineas al alejar la vista, con limites", () => {
+  it("adelgaza las lineas al alejar la vista, con limites", () => {
     expect(relationLineWidth(1)).toBe(RELATION_LINE_WIDTH);
     expect(relationLineWidth(2.5)).toBe(RELATION_LINE_WIDTH);
-    expect(relationLineWidth(0.1)).toBeGreaterThan(relationLineWidth(0.3));
-    expect(relationLineWidth(0.02)).toBe(RELATION_LINE_WIDTH_MAX);
+    expect(relationLineWidth(0.1)).toBeLessThan(relationLineWidth(0.3));
+    expect(relationLineWidth(0.02)).toBe(RELATION_LINE_WIDTH_MIN);
   });
 
-  it("lineas claramente mas gruesas al alejar", () => {
-    expect(relationLineWidth(0.6)).toBe(RELATION_LINE_WIDTH);
-    expect(relationLineWidth(0.25)).toBeGreaterThan(4.5);
-    expect(relationLineWidth(0.1)).toBe(RELATION_LINE_WIDTH_MAX);
+  it("nunca engorda las lineas por debajo del detalle completo", () => {
+    for (const zoom of [0.59, 0.4, 0.25, 0.1, 0.05]) {
+      expect(relationLineWidth(zoom)).toBeLessThanOrEqual(RELATION_LINE_WIDTH);
+      expect(relationLineWidth(zoom)).toBeGreaterThanOrEqual(RELATION_LINE_WIDTH_MIN);
+    }
+    expect(relationLineWidth(0.08)).toBe(RELATION_LINE_WIDTH_MIN);
   });
 
   it("el nombre en vista general depende solo del zoom", () => {
-    expect(overviewNameSize(0.3)).toBe(14);
-    expect(overviewNameSize(0.25)).toBe(14);
+    expect(overviewNameSize(0.3)).toBe(13);
+    expect(overviewNameSize(0.25)).toBe(13);
     expect(overviewNameSize(0.15)).toBeGreaterThan(11);
-    expect(overviewNameSize(0.15)).toBeLessThan(14);
-    expect(overviewNameSize(0.02)).toBe(10);
+    expect(overviewNameSize(0.15)).toBeLessThan(13);
+    expect(overviewNameSize(0.02)).toBe(11);
   });
 
-  it("los simbolos de cardinalidad son visibles pero acotados", () => {
-    expect(cardinalityMarkerSize(1)).toBe(18);
-    expect(cardinalityMarkerSize(0.05)).toBe(28);
+  it("los simbolos de cardinalidad encogen al alejar, con un minimo", () => {
+    expect(cardinalityMarkerSize(1)).toBe(16);
+    expect(cardinalityMarkerSize(0.3)).toBeLessThan(16);
+    expect(cardinalityMarkerSize(0.3)).toBeGreaterThan(8);
+    expect(cardinalityMarkerSize(0.05)).toBe(8);
   });
 
   it("el trazo de los simbolos iguala el grosor de la linea en pantalla", () => {

@@ -175,6 +175,49 @@ export function createDiagramController(
     });
   }
 
+  /* ---------------------------------------------------------------- */
+  /* Resaltado de relaciones de la tabla bajo el raton               */
+  /* ---------------------------------------------------------------- */
+
+  let hoveredTableId: string | null = null;
+
+  function cardElement(tableId: string): HTMLElement | null {
+    return tableLayer.querySelector<HTMLElement>(`.table-card[data-table-id="${CSS.escape(tableId)}"]`);
+  }
+
+  /**
+   * Al pasar el raton por una tabla se resaltan sus relaciones y las tablas del otro extremo
+   * (el resto se atenua): asi se ve donde empieza y acaba cada linea aunque haya muchas.
+   */
+  function setHoveredTable(tableId: string | null, force = false) {
+    if (tableId === hoveredTableId && !force) return;
+    hoveredTableId = tableId;
+    world.querySelectorAll(".is-related").forEach((node) => node.classList.remove("is-related"));
+    world.querySelectorAll(".is-hover-source").forEach((node) => node.classList.remove("is-hover-source"));
+    world.classList.toggle("has-hover-focus", Boolean(tableId));
+    if (tableId) {
+      const related = new Set<string>([tableId]);
+      const selector = `[data-from-table="${CSS.escape(tableId)}"],[data-to-table="${CSS.escape(tableId)}"]`;
+      world.querySelectorAll<SVGGElement>(selector).forEach((bundle) => {
+        bundle.classList.add("is-related");
+        if (bundle.dataset.fromTable) related.add(bundle.dataset.fromTable);
+        if (bundle.dataset.toTable) related.add(bundle.dataset.toTable);
+      });
+      related.forEach((id) => cardElement(id)?.classList.add("is-related"));
+      cardElement(tableId)?.classList.add("is-hover-source");
+    }
+  }
+
+  tableLayer.addEventListener("pointerover", (event) => {
+    const card = (event.target as Element).closest<HTMLElement>(".table-card");
+    if (card?.dataset.tableId) setHoveredTable(card.dataset.tableId);
+  });
+  tableLayer.addEventListener("pointerout", (event) => {
+    const from = (event.target as Element).closest(".table-card");
+    const to = (event.relatedTarget as Element | null)?.closest?.(".table-card") ?? null;
+    if (from && from !== to) setHoveredTable(to instanceof HTMLElement ? (to.dataset.tableId ?? null) : null);
+  });
+
   function getTableWidth(table: Table): number {
     return measuredTableWidths.get(table.id) ?? estimateTableWidth(table);
   }
@@ -403,6 +446,7 @@ export function createDiagramController(
     );
     linesLayer.innerHTML = `${markerDefs(lastLineZoom)}${lines}`;
     labelsLayer.innerHTML = labels;
+    if (hoveredTableId) setHoveredTable(hoveredTableId, true);
   }
 
   function paintRelationsDeferred() {
@@ -447,6 +491,7 @@ export function createDiagramController(
     measureAndPinWidths(state);
     contentBounds = computeContentBounds(state.tables);
     paintRelations("full");
+    if (hoveredTableId && !state.tables.some((table) => table.id === hoveredTableId)) setHoveredTable(null);
   }
 
   function render() {

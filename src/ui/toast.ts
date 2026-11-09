@@ -1,3 +1,5 @@
+import { iconNode } from "./icons.ts";
+
 export type ToastKind = "info" | "success" | "error";
 
 const TOAST_DURATION_MS: Record<ToastKind, number> = {
@@ -22,7 +24,9 @@ function getContainer(): HTMLDivElement {
 export function showToast(message: string, kind: ToastKind = "info"): void {
   const toast = document.createElement("div");
   toast.className = `toast toast-${kind}`;
-  toast.textContent = message;
+  const text = document.createElement("span");
+  text.textContent = message;
+  toast.append(iconNode(kind === "success" ? "checkCircle" : kind === "error" ? "alert" : "info", 17), text);
   toast.addEventListener("click", () => toast.remove());
   getContainer().append(toast);
   window.setTimeout(() => {

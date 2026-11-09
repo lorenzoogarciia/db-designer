@@ -10,6 +10,9 @@ import { wireRelationEditModal } from "./ui/modals/relation-edit-modal.ts";
 import { wireSqlModal } from "./ui/modals/sql-modal.ts";
 import { wireSqlImportModal } from "./ui/modals/sql-import-modal.ts";
 import { wireTableEditorModal } from "./ui/modals/table-editor-modal.ts";
+import { confirmDialog } from "./ui/dialog.ts";
+import { whenUiFontsReady } from "./ui/fonts.ts";
+import { wireShellControls } from "./ui/shell-controls.ts";
 import { showToast } from "./ui/toast.ts";
 import { wireProjectPanel } from "./ui/project-panel.ts";
 import { createSelectControllers } from "./ui/selects.ts";
@@ -22,6 +25,7 @@ const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("No se encontro #app");
 
 mountAppShell(app);
+wireShellControls();
 
 const controlsPanel = document.querySelector<HTMLElement>(".controls");
 controlsPanel?.addEventListener(
@@ -86,7 +90,9 @@ wireCanvasInteractions(store, diagram, {
   onEditTable: openTableEditor,
   onEditField: openFieldEditModal,
   onEditRelation: openRelationEditModal,
+  onFocusTable: (tableId) => diagram.focusTable(tableId),
   onCreateTableAt: (point) => openTableCreator({ at: point }),
+  confirmDestructive: (title, message, confirmLabel) => confirmDialog({ title, message, confirmLabel, danger: true }),
 });
 wireDiagramTableSearch(store, diagram);
 
@@ -98,9 +104,23 @@ exportButton.addEventListener("click", () => void exportDiagramAsPng(diagram));
 
 selects.refreshProjectSelect();
 selects.refreshSelects();
-diagram.render();
-// Al abrir, encuadrar todo el proyecto (las tablas ya estan medidas tras el primer render).
-diagram.fitContentToViewport();
+void whenUiFontsReady().then(() => {
+  diagram.render();
+  // Al abrir, encuadrar todo el proyecto (las tablas ya estan medidas tras el primer render).
+  diagram.fitContentToViewport();
+});
+
+// Estado vacío del lienzo: se muestra mientras el proyecto activo no tiene tablas.
+const canvasEmpty = document.querySelector<HTMLElement>("#canvas-empty");
+document.querySelector("#canvas-empty-new-btn")?.addEventListener("click", () => openTableCreator());
+document.querySelector("#canvas-empty-import-btn")?.addEventListener("click", () =>
+  document.querySelector<HTMLButtonElement>("#project-import-sql-btn")?.click(),
+);
+function syncCanvasEmpty() {
+  if (canvasEmpty) canvasEmpty.hidden = store.getState().tables.length > 0;
+}
+syncCanvasEmpty();
+store.subscribe(syncCanvasEmpty);
 
 let schemaSignature = "";
 store.subscribe(() => {

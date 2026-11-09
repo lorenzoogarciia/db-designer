@@ -19,6 +19,8 @@ import {
 import type { FkReferentialAction, Relation, Table } from "../../domain/types.ts";
 import { DATA_TYPE_OPTIONS, isAutoIncrementType } from "../../lib/data-types.ts";
 import type { Store } from "../../state/store.ts";
+import { confirmDialog } from "../dialog.ts";
+import { iconNode } from "../icons.ts";
 import { showToast } from "../toast.ts";
 
 export interface TableCreateOptions {
@@ -246,7 +248,7 @@ export function wireTableEditorModal(
         const status = removed ? "se quitará al guardar" : lost.has(relation.id) ? "se perderá: el campo al que apunta ya no existe" : "";
         const toggle = el("button", {
           type: "button",
-          class: removed ? "neutral-btn tc-incoming-btn" : "danger-btn tc-incoming-btn",
+          class: removed ? "btn btn-secondary btn-sm tc-incoming-btn" : "btn btn-danger-ghost btn-sm tc-incoming-btn",
           text: removed ? "Deshacer" : "Quitar",
         });
         toggle.addEventListener("click", () => {
@@ -281,9 +283,9 @@ export function wireTableEditorModal(
     const indexed = check("IDX", "Índice");
     const defaultValue = el("input", { class: "tc-default", "aria-label": "Valor por defecto", value: field.defaultValue, spellcheck: "false" });
     const reference = buildReferenceSelect(tables);
-    const remove = el("button", { type: "button", class: "danger-btn tc-remove", title: "Quitar campo", "aria-label": "Quitar campo", text: "✕" });
-    const moveUp = el("button", { type: "button", class: "neutral-btn tc-move", title: "Subir campo", "aria-label": "Subir campo", text: "↑" });
-    const moveDown = el("button", { type: "button", class: "neutral-btn tc-move", title: "Bajar campo", "aria-label": "Bajar campo", text: "↓" });
+    const remove = el("button", { type: "button", class: "icon-btn icon-btn-danger tc-remove", title: "Quitar campo", "aria-label": "Quitar campo" }, [iconNode("trash", 15)]);
+    const moveUp = el("button", { type: "button", class: "icon-btn tc-move", title: "Subir campo", "aria-label": "Subir campo" }, [iconNode("chevronDown", 14, "is-flipped")]);
+    const moveDown = el("button", { type: "button", class: "icon-btn tc-move", title: "Bajar campo", "aria-label": "Bajar campo" }, [iconNode("chevronDown", 14)]);
 
     const enumValues = el("input", { class: "tc-enum", placeholder: "Valores del enum separados por comas: activo, inactivo", value: field.enumValues, spellcheck: "false" });
     const enumRow = el("div", { class: "tc-subrow" }, [el("span", { class: "tc-subrow-label", text: "Valores" }), enumValues]);
@@ -426,7 +428,7 @@ export function wireTableEditorModal(
     const onDelete = buildActionSelect("ON DELETE");
     onDelete.value = "CASCADE";
     const hint = el("span", { class: "tc-reference-hint" });
-    const remove = el("button", { type: "button", class: "danger-btn tc-remove", title: "Quitar", "aria-label": "Quitar relación", text: "✕" });
+    const remove = el("button", { type: "button", class: "icon-btn icon-btn-danger tc-remove", title: "Quitar", "aria-label": "Quitar relación" }, [iconNode("trash", 15)]);
     const row = el("div", { class: "tc-nm-row" }, [
       el("span", { class: "tc-subrow-label", text: "Con" }),
       tableSelect,
@@ -461,7 +463,7 @@ export function wireTableEditorModal(
     );
   }
 
-  function submitEdit() {
+  async function submitEdit() {
     const tableId = draft.tableId;
     if (!tableId) return;
     const lost = lostIncomingRelations(draft, relationsSnapshot).filter((relation) => !removedIncoming.has(relation.id));
@@ -472,7 +474,12 @@ export function wireTableEditorModal(
           return `${from?.name ?? "?"}.${from?.fields.find((field) => field.id === relation.fromFieldId)?.name ?? "?"}`;
         })
         .join(", ");
-      const ok = window.confirm(`Se eliminarán ${lost.length} relación(es) que apuntan a campos borrados: ${names}. ¿Continuar?`);
+      const ok = await confirmDialog({
+        title: `Se eliminarán ${lost.length} relación(es)`,
+        message: `Apuntan a campos que ya no existen: ${names}.`,
+        confirmLabel: "Guardar igualmente",
+        danger: true,
+      });
       if (!ok) return;
     }
     const built = buildTableFromDraft(draft, tables, tableId);
@@ -482,14 +489,17 @@ export function wireTableEditorModal(
     showToast(`Tabla "${built.table.name}" actualizada.`, "success");
   }
 
-  function deleteTable() {
+  async function deleteTable() {
     const tableId = draft.tableId;
     const table = tableId ? tableById(tableId) : undefined;
     if (!tableId || !table) return;
     const relationCount = relationsSnapshot.filter((relation) => relation.fromTableId === tableId || relation.toTableId === tableId).length;
-    const ok = window.confirm(
-      `¿Eliminar la tabla "${table.name}"${relationCount > 0 ? ` y sus ${relationCount} relación(es)` : ""}? No se puede deshacer.`,
-    );
+    const ok = await confirmDialog({
+      title: `¿Eliminar la tabla "${table.name}"?`,
+      message: `${relationCount > 0 ? `También se quitarán sus ${relationCount} relación(es). ` : ""}No se puede deshacer.`,
+      confirmLabel: "Eliminar tabla",
+      danger: true,
+    });
     if (!ok) return;
     store.dispatch({ type: "REMOVE_TABLE", tableId });
     close();
@@ -504,7 +514,7 @@ export function wireTableEditorModal(
       return;
     }
     if (mode === "edit") {
-      submitEdit();
+      void submitEdit();
       return;
     }
     const built = buildTableFromDraft(draft, tables);
@@ -536,11 +546,20 @@ export function wireTableEditorModal(
 
   function render() {
     const editing = mode === "edit";
-    const title = el("h3", { id: "table-create-title", text: editing ? `Editar tabla: ${draft.name}` : "Nueva tabla" });
-    const closeButton = el("button", { type: "button", class: "neutral-btn", text: "Cerrar" });
+    const title = el("div", { class: "modal-title" }, [
+      el("span", { class: "modal-title-icon" }, [iconNode(editing ? "pencil" : "table", 16)]),
+      el("div", {}, [
+        el("h3", { id: "table-create-title" }, editing ? ["Editar tabla ", el("code", { class: "modal-title-code", text: draft.name })] : ["Nueva tabla"]),
+        el("p", {
+          class: "modal-subtitle",
+          text: editing ? "Los ids de campos y relaciones se conservan al renombrar o reordenar." : "Define el nombre, los campos y sus relaciones en un solo paso.",
+        }),
+      ]),
+    ]);
+    const closeButton = el("button", { type: "button", class: "icon-btn", "aria-label": "Cerrar", title: "Cerrar (Esc)" }, [iconNode("x")]);
     closeButton.addEventListener("click", close);
 
-    nameInput = el("input", { id: "table-create-name", class: "tc-table-name", placeholder: "nombre_de_la_tabla", value: draft.name, spellcheck: "false", autocomplete: "off" });
+    nameInput = el("input", { id: "table-create-name", class: "tc-table-name input-mono", placeholder: "nombre_de_la_tabla", value: draft.name, spellcheck: "false", autocomplete: "off" });
     namePreview = el("span", { class: "tc-name-preview" });
     const syncNamePreview = () => {
       const normalized = safeName(nameInput.value);
@@ -573,25 +592,28 @@ export function wireTableEditorModal(
       el("span", { text: "Referencia (FK)" }),
       el("span"),
     ]);
-    const addFieldButton = el("button", { type: "button", class: "neutral-btn tc-add", text: "+ Añadir campo" });
+    const addFieldButton = el("button", { type: "button", class: "btn btn-dashed tc-add" }, [iconNode("plus"), el("span", { text: "Añadir campo" })]);
     addFieldButton.addEventListener("click", () => focusRow(addField().key));
 
     manyContainer = el("div", { class: "tc-nm" });
-    const addManyButton = el("button", { type: "button", class: "neutral-btn tc-add", text: "+ Relación muchos a muchos" });
+    const addManyButton = el("button", { type: "button", class: "btn btn-dashed tc-add" }, [iconNode("link"), el("span", { text: "Relación muchos a muchos" })]);
     addManyButton.addEventListener("click", addManyToMany);
     if (tables.length === 0) addManyButton.disabled = true;
 
     messages = el("div", { class: "tc-messages", "aria-live": "polite" });
-    const cancel = el("button", { type: "button", class: "neutral-btn", text: "Cancelar" });
+    const cancel = el("button", { type: "button", class: "btn btn-secondary", text: "Cancelar" });
     cancel.addEventListener("click", close);
-    const create = el("button", { type: "button", class: "tc-submit", text: editing ? "Guardar cambios" : "Crear tabla" });
-    create.append(el("kbd", { text: "Ctrl+Enter" }));
+    const create = el("button", { type: "button", class: "btn btn-primary tc-submit" }, [
+      iconNode("check"),
+      el("span", { text: editing ? "Guardar cambios" : "Crear tabla" }),
+      el("kbd", { text: "Ctrl ↵" }),
+    ]);
     create.addEventListener("click", submit);
 
     const card = el("div", { class: "modal-card table-create-card" }, [
-      el("div", { class: "modal-header" }, [title, closeButton]),
+      el("header", { class: "modal-header" }, [title, closeButton]),
       el("div", { class: "tc-body" }, [
-        el("label", { class: "tc-section-label", for: "table-create-name", text: "Nombre de la tabla" }),
+        el("label", { class: "form-label", for: "table-create-name", text: "Nombre de la tabla" }),
         el("div", { class: "tc-name-row" }, [nameInput, namePreview]),
         el("div", { class: "tc-section-head" }, [
           el("h4", { text: "Campos y relaciones" }),
@@ -621,7 +643,7 @@ export function wireTableEditorModal(
         messages,
       ]),
       el(
-        "div",
+        "footer",
         { class: "modal-actions tc-actions" },
         editing ? [deleteButton(), el("span", { class: "tc-actions-spacer" }), cancel, create] : [cancel, create],
       ),
@@ -636,8 +658,8 @@ export function wireTableEditorModal(
   }
 
   function deleteButton(): HTMLButtonElement {
-    const button = el("button", { type: "button", class: "danger-btn tc-delete-table", text: "Eliminar tabla" });
-    button.addEventListener("click", deleteTable);
+    const button = el("button", { type: "button", class: "btn btn-danger-ghost tc-delete-table" }, [iconNode("trash"), el("span", { text: "Eliminar tabla" })]);
+    button.addEventListener("click", () => void deleteTable());
     return button;
   }
 

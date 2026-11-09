@@ -50,16 +50,17 @@ La **cámara** (desplazamiento y zoom) es estado local del controlador del diagr
 
 Orden actual (importa: varios `wire…` necesitan elementos o funciones creados antes):
 
-1. `mountAppShell(#app)`: inserta todo el HTML estático (paneles, barra del diagrama, modales de SQL, campo y relación).
+1. `mountAppShell(#app)`: inserta todo el HTML estático (barra superior con menús, panel lateral, lienzo con sus controles flotantes y estado vacío, modales de SQL, campo y relación). Justo después, `wireShellControls()` (`ui/shell-controls.ts`): menús, pestañas y plegado del panel, botones `[data-modal-close]` y Escape en los modales. Ver [interfaz.md](interfaz.md).
 2. `createStore(loadInitialState(), persistState)`: `persistState` envuelve `saveState` y muestra un aviso (como mucho cada 10 s) si `localStorage` falla.
 3. `createSelectControllers(store)`: comboboxes de los formularios del panel.
 4. `createDiagramController(store, #diagram, #zoom-input)`: crea el mundo, las capas y la leyenda, y se suscribe al store.
 5. Modales: `wireFieldEditModal`, `wireRelationEditModal`, `wireTableEditorModal` (devuelve `openTableCreator` y `openTableEditor`).
 6. Panel y formularios: `wireThemeToggles`, `wireProjectPanel`, `wireTableForm(openTableCreator)`, `wireFieldForm`, `wireRelationForm`, `wireSqlModal`, `wireSqlImportModal`.
-7. Botón *+ Nueva tabla* y atajo de teclado `N`.
-8. `wireCanvasInteractions(store, diagram, { onEditTable, onEditField, onEditRelation, onCreateTableAt })`.
+7. Botón *Nueva tabla* y atajo de teclado `N`.
+8. `wireCanvasInteractions(store, diagram, { onEditTable, onEditField, onEditRelation, onFocusTable, onCreateTableAt, confirmDestructive })`. `confirmDestructive` envuelve `confirmDialog` de la UI: el canvas no importa módulos de `ui/`.
 9. `wireDiagramTableSearch`, botones de zoom, `wireZoomInput`, exportar PNG.
-10. Primer render (`diagram.render()`) y encuadre (`diagram.fitContentToViewport()`, síncrono).
+10. Primer render (`diagram.render()`) y encuadre (`diagram.fitContentToViewport()`), **tras `whenUiFontsReady()`** (`ui/fonts.ts`, máx. 2,5 s): las tarjetas fijan su ancho al medirse y hay que medir con las tipografías definitivas.
+11. Estado vacío del lienzo (`#canvas-empty`), suscrito al store: visible mientras el proyecto no tenga tablas.
 
 ## Convenciones de módulos
 

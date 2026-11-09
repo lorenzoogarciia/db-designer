@@ -3,8 +3,9 @@ export type AppTheme = "dark" | "light";
 export const THEME_STORAGE_KEY = "dbdesigner.theme.v1";
 
 const THEME_EXPORT_BACKGROUNDS: Record<AppTheme, string> = {
-  dark: "#0b1220",
-  light: "#f4f7fa",
+  // Deben coincidir con el fondo del lienzo (--color-bg-diagram-gradient-end) de cada tema.
+  dark: "#111214",
+  light: "#f6f5f1",
 };
 
 export function isAppTheme(value: string | null | undefined): value is AppTheme {
@@ -42,6 +43,3 @@ export function themeToggleLabel(theme: AppTheme) {
   return theme === "dark" ? "Cambiar a tema claro" : "Cambiar a tema oscuro";
 }
 
-export function themeToggleIcon(theme: AppTheme) {
-  return theme === "dark" ? "☀️" : "🌙";
-}

@@ -175,6 +175,16 @@ export async function renderDiagramCanvas(diagram: DiagramController): Promise<H
           });
           // La leyenda es solo para la vista; se quita del clon (html2canvas ni la analiza).
           clonedViewport.querySelectorAll(".diagram-legend").forEach((legend) => legend.remove());
+          // Botones de las tarjetas: no aportan nada en la imagen y sus iconos son máscaras CSS,
+          // que html2canvas no entiende (pintaría cuadrados). Los anchos ya están fijados.
+          clonedWorld.querySelectorAll(".table-actions, .field-actions").forEach((actions) => actions.remove());
+          // html2canvas convierte los ::before en nodos al clonar: el icono de la cabecera es una
+          // máscara CSS (que pintaría como un cuadrado), así que se quita del título.
+          clonedWorld.querySelectorAll(".table-card-title > :not(h3):not(.table-card-count)").forEach((node) => node.remove());
+          clonedWorld.querySelectorAll<HTMLElement>(".field-key").forEach((key) => {
+            key.style.background = "none";
+            key.style.maskImage = "none";
+          });
           clonedWorld.querySelectorAll<HTMLElement>(".table-card").forEach((card) => {
             const match = /translate\(\s*(-?[\d.]+)px,\s*(-?[\d.]+)px\s*\)/.exec(card.style.transform);
             if (!match) return;

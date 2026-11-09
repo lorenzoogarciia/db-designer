@@ -9,6 +9,13 @@ const MAX_EDGE_PAN_SPEED = 18;
 const WHEEL_LINE_HEIGHT = 16;
 /** Sensibilidad del zoom con rueda/pellizco: factor = exp(-deltaY * WHEEL_ZOOM_SPEED). */
 const WHEEL_ZOOM_SPEED = 0.0018;
+/** Movimiento maximo (px de pantalla) para que soltar una tabla cuente como clic y no como arrastre. */
+const CLICK_MOVE_TOLERANCE = 4;
+/**
+ * Espera tras un clic en una tabla antes de centrarla: si llega el segundo clic de un doble clic
+ * se cancela (el doble clic abre la edicion, como siempre).
+ */
+const SINGLE_CLICK_DELAY_MS = 260;
 
 interface DragState {
   tableId: string;
@@ -24,6 +31,11 @@ interface DragState {
   viewportTop: number;
   viewportRight: number;
   viewportBottom: number;
+  /** Donde se pulso (px de cliente), para distinguir un clic de un arrastre. */
+  startClientX: number;
+  startClientY: number;
+  /** El puntero se ha alejado mas de CLICK_MOVE_TOLERANCE: es un arrastre. */
+  moved: boolean;
 }
 
 interface PanState {
@@ -40,8 +52,12 @@ export function wireCanvasInteractions(
     onEditTable: (tableId: string) => void;
     onEditField: (tableId: string, fieldId: string) => void;
     onEditRelation: (relationId: string) => void;
+    /** Clic simple en una tabla (sin arrastrar): llevar la vista a ella, como al buscarla. */
+    onFocusTable: (tableId: string) => void;
     /** Doble clic en una zona vacia del canvas: crear una tabla en ese punto del mundo. */
     onCreateTableAt: (point: { x: number; y: number }) => void;
+    /** Confirmación de acciones destructivas (la pone la UI: el canvas no conoce los diálogos). */
+    confirmDestructive: (title: string, message: string, confirmLabel: string) => Promise<boolean>;
   },
 ): void {
   const diagramElement = diagram.getDiagramElement();
@@ -49,6 +65,14 @@ export function wireCanvasInteractions(
   let panState: PanState | null = null;
   let dragRafId: number | null = null;
   let panRafId: number | null = null;
+  let pendingFocusTimer: number | null = null;
+
+  function cancelPendingFocus(): void {
+    if (pendingFocusTimer !== null) {
+      window.clearTimeout(pendingFocusTimer);
+      pendingFocusTimer = null;
+    }
+  }
 
   function cacheViewport(state: DragState): void {
     const rect = diagramElement.getBoundingClientRect();
@@ -143,6 +167,7 @@ export function wireCanvasInteractions(
 
   function endTableDrag(): void {
     if (!dragState) return;
+    const clickedTableId = dragState.moved ? null : dragState.tableId;
 
     stopDragTick();
     dragState.card.classList.remove("is-dragging");
@@ -160,9 +185,18 @@ export function wireCanvasInteractions(
     }
 
     dragState = null;
+
+    // Pulsar y soltar sin arrastrar = clic: centrar la tabla (salvo que llegue un doble clic).
+    if (clickedTableId) {
+      cancelPendingFocus();
+      pendingFocusTimer = window.setTimeout(() => {
+        pendingFocusTimer = null;
+        handlers.onFocusTable(clickedTableId);
+      }, SINGLE_CLICK_DELAY_MS);
+    }
   }
 
-  diagramElement.addEventListener("click", (event) => {
+  diagramElement.addEventListener("click", async (event) => {
     const deleteRelationEl = (event.target as Element).closest("[data-action='delete-relation']");
     if (deleteRelationEl) {
       const relationId = deleteRelationEl.getAttribute("data-relation-id");
@@ -181,7 +215,11 @@ export function wireCanvasInteractions(
             .getState()
             .tables.find((t) => t.id === relation.toTableId)
             ?.fields.find((f) => f.id === relation.toFieldId)?.name ?? "?";
-        const ok = window.confirm(`Eliminar la relacion ${fromTable}.${fromField} -> ${toTable}.${toField}?`);
+        const ok = await handlers.confirmDestructive(
+          "¿Eliminar la relación?",
+          `${fromTable}.${fromField} → ${toTable}.${toField}`,
+          "Eliminar",
+        );
         if (!ok) return;
         store.dispatch({ type: "REMOVE_RELATION", relationId });
         return;
@@ -197,14 +235,24 @@ export function wireCanvasInteractions(
       }
     }
 
-    const target = event.target as HTMLElement;
+    // Los botones de las tarjetas llevan icono: se busca el botón con la acción, no el nodo pulsado.
+    const target = ((event.target as Element).closest<HTMLElement>("[data-action]") ?? event.target) as HTMLElement;
     const action = target.dataset.action;
     if (action === "rename-table" && target.dataset.tableId) {
       handlers.onEditTable(target.dataset.tableId);
       return;
     }
     if (action === "delete-table" && target.dataset.tableId) {
-      store.dispatch({ type: "REMOVE_TABLE", tableId: target.dataset.tableId });
+      const tableId = target.dataset.tableId;
+      const state = store.getState();
+      const table = getTableById(state, tableId);
+      const relationCount = state.relations.filter((r) => r.fromTableId === tableId || r.toTableId === tableId).length;
+      const ok = await handlers.confirmDestructive(
+        `¿Eliminar la tabla "${table?.name ?? "?"}"?`,
+        `${relationCount > 0 ? `También se quitarán sus ${relationCount} relación(es). ` : ""}No se puede deshacer.`,
+        "Eliminar tabla",
+      );
+      if (ok) store.dispatch({ type: "REMOVE_TABLE", tableId });
       return;
     }
     if (action === "edit-field" && target.dataset.tableId && target.dataset.fieldId) {
@@ -231,6 +279,7 @@ export function wireCanvasInteractions(
 
   // Doble clic en una tabla (util en vista general, donde no hay botones): abrir su edicion.
   diagramElement.addEventListener("dblclick", (event) => {
+    cancelPendingFocus();
     const target = event.target as Element;
     if (target.closest("button")) return;
     const card = target.closest<HTMLElement>(".table-card");
@@ -246,6 +295,7 @@ export function wireCanvasInteractions(
     if (event.button !== 0 && event.button !== 1) return;
     const target = event.target as Element;
     diagram.stopCameraAnimation();
+    cancelPendingFocus();
     // Boton central: desplazar siempre, incluso sobre una tabla.
     const tableCard = event.button === 0 ? target.closest<HTMLElement>(".table-card") : null;
     if (event.button === 0) {
@@ -277,6 +327,9 @@ export function wireCanvasInteractions(
         viewportTop: 0,
         viewportRight: 0,
         viewportBottom: 0,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        moved: false,
       };
       cacheViewport(next);
       dragState = next;
@@ -299,6 +352,12 @@ export function wireCanvasInteractions(
 
   window.addEventListener("mousemove", (event) => {
     if (dragState) {
+      if (
+        !dragState.moved &&
+        Math.hypot(event.clientX - dragState.startClientX, event.clientY - dragState.startClientY) > CLICK_MOVE_TOLERANCE
+      ) {
+        dragState.moved = true;
+      }
       dragState.pendingX = event.clientX;
       dragState.pendingY = event.clientY;
       scheduleDragTick();

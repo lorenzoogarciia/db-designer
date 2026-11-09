@@ -89,4 +89,4 @@ Tipos desconocidos, columnas calculadas, índices o UNIQUE compuestos (se import
 ## UI
 
 - *Generar SQL* (panel): MySQL / PostgreSQL / SQL Server → elegir tablas → modal con el SQL y botón *Copiar*.
-- *Importar SQL* (panel de proyectos): pegar o cargar `.sql`; vista previa en vivo (con 250 ms de espera) con el recuento y los avisos; importar como proyecto nuevo o reemplazar el actual (con confirmación). Después se encuadra el diagrama.
+- *Importar SQL* (menú *Importar* de la barra superior, o el estado vacío del lienzo): pegar o cargar `.sql`; vista previa en vivo (con 250 ms de espera) con el recuento y los avisos; importar como proyecto nuevo o reemplazar el actual (con confirmación). Después se encuadra el diagrama.

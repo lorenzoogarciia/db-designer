@@ -167,7 +167,7 @@ function renderRelationParts(
 
     const { start, end } = cardinalityMarkers(item.relation.kind);
     lines.push(`
-      <g class="relation-line-bundle" data-relation-id="${item.relation.id}">
+      <g class="relation-line-bundle" data-relation-id="${item.relation.id}" data-from-table="${item.relation.fromTableId}" data-to-table="${item.relation.toTableId}">
         <path class="relation-path ${relationStyle(item.relation.kind)}" data-relation-id="${item.relation.id}" d="${item.path}" marker-start="url(#${start})" marker-end="url(#${end})">
           <title>${item.relation.kind} · ${item.relationTooltip}</title>
         </path>
@@ -175,7 +175,7 @@ function renderRelationParts(
     `);
 
     labels.push(`
-      <g class="relation-label-bundle ${relationStyle(item.relation.kind)}" data-relation-id="${item.relation.id}" style="--relation-z:${20 + item.index}">
+      <g class="relation-label-bundle ${relationStyle(item.relation.kind)}" data-relation-id="${item.relation.id}" data-from-table="${item.relation.fromTableId}" data-to-table="${item.relation.toTableId}" style="--relation-z:${20 + item.index}">
         <g class="relation-label" transform="translate(${scaledLabelX.toFixed(1)}, ${scaledLabelY.toFixed(1)})">
           <g class="relation-label-scale">
           <rect x="${labelOffsetX}" y="-14" width="${labelWidth}" height="18" rx="6" class="relation-label-box"></rect>

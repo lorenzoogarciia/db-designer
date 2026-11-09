@@ -45,16 +45,20 @@ El zoom se persiste en el proyecto con `SET_ZOOM` 500 ms después del último ca
 | Nivel | Zoom | Qué se ve |
 |---|---|---|
 | `full` | ≥ 0,60 | Tarjeta completa con botones (subir/bajar, editar, borrar) y metadatos largos |
-| `compact` | 0,33–0,60 | Sin botones; nombre de campo y tipo corto (`.field-meta-short`) con fuente compensada `min(Npx / zoom, tope)`; etiquetas de relación ampliadas con `--label-scale` |
-| `overview` | < 0,33 | Tarjeta como bloque: nombre (mismo tamaño en pantalla para todas las tablas, 14 px → 10 px con la vista muy alejada) y nº de campos; el nombre puede sobresalir de tarjetas pequeñas y partirse por los `_`; sin etiquetas de relación; líneas continuas |
+| `compact` | 0,33–0,60 | Sin botones; nombre de campo y tipo corto (`.field-meta-short`). El texto se compensa (`Npx / zoom`) pero sin pasar del ancho de la tarjeta: `container-type: inline-size` en la tarjeta y `min(…, (100cqw − margen) / (--len × ancho medio))`, con `--len` = nº de caracteres que pone `table-renderer.ts`, y nunca por debajo del tamaño de `full` (con el que se midió la tarjeta). Así el nombre va siempre entero en una línea; si es muy largo, más pequeño. Si no cabe todo, se recorta antes el tipo. Etiquetas de relación ampliadas con `--label-scale` |
+| `overview` | < 0,33 | Cada tabla es una caja con su nombre **completo en una línea** a tamaño fijo en pantalla (13 px → 11 px con la vista muy alejada). La caja (`.table-card-title`) mide como mínimo lo que la tabla real y crece, centrada, si el nombre no cabe; en proyectos densos puede montarse sobre la vecina (la de debajo del ratón y sus relacionadas pasan delante). Los anclajes de las líneas no cambian. Sin etiquetas de relación; líneas continuas |
 
 Todo se hace con CSS (`.diagram-world[data-lod="…"] …`) sobre el mismo DOM. **Las dimensiones de la tarjeta no cambian entre niveles**: el ancho se mide en `full` y se fija; el alto es `getTableHeight` = 64 + 42 × campos. Así las rutas y los anclajes valen para cualquier zoom.
 
 ## Grosores y símbolos según el zoom
 
-- **Líneas**: `relationLineWidth(zoom)` = 2,5 px hasta el 60 %; al alejar crece como `2,5 × (0,6 / zoom)^0,85` hasta 7 px. Se aplica como `stroke-width: var(--line-world)` con `--line-world = ancho / zoom` (unidades del mundo). **No usar `vector-effect: non-scaling-stroke`**: no compensa el transform CSS del contenedor.
+- **Líneas**: `relationLineWidth(zoom)` = 2,25 px desde el 60 %; al alejar **adelgazan** en escala logarítmica hasta 1,25 px (8 % o menos). Antes engordaban hasta 7 px y, en proyectos grandes, las líneas paralelas se fundían en bloques: no volver a eso. Se aplica como `stroke-width: var(--line-world)` con `--line-world = ancho / zoom` (unidades del mundo). **No usar `vector-effect: non-scaling-stroke`**: no compensa el transform CSS del contenedor.
 - **Guiones**: `stroke-dasharray: calc(8px / var(--zoom)) …` para mantener su tamaño en pantalla.
-- **Símbolos de cardinalidad**: marcadores `markerUnits="userSpaceOnUse"` de `cardinalityMarkerSize / zoom` unidades (18–28 px en pantalla); su trazo (`--marker-stroke`) se calcula para igualar el grosor de la línea.
+- **Símbolos de cardinalidad**: marcadores `markerUnits="userSpaceOnUse"` de `cardinalityMarkerSize / zoom` unidades: 16 px en pantalla con el detalle completo y encogiendo con la raíz del zoom hasta un mínimo de 8 px. Su trazo (`--marker-stroke`) se calcula para igualar el grosor de la línea.
+
+## Resaltado de relaciones al pasar el ratón
+
+`setHoveredTable` (en el controlador, con `pointerover`/`pointerout` sobre la capa de tablas) marca `.is-related` en las relaciones de la tabla (las capas SVG llevan `data-from-table`/`data-to-table`) y en las tablas del otro extremo, y `.has-hover-focus` en el mundo. El CSS atenúa el resto (líneas al 8 %, tarjetas al 40 %) y engrosa las relacionadas. Funciona en todos los niveles de detalle y se desactiva mientras se arrastra o se desplaza. Tras redibujar relaciones se vuelve a aplicar. En vista general, las cajas resaltadas pasan delante de las que se les monten.
 
 ## Render (`diagram-controller.ts`)
 
@@ -82,7 +86,8 @@ API pública del controlador: `render`, `getDiagramElement`, `getWorldElement`, 
 | Rueda | Desplaza (Mayús: horizontal). Normaliza `deltaMode` (líneas × 16) |
 | Ctrl/Cmd + rueda, pellizco | Zoom en el cursor: factor `exp(-deltaY × 0,0018)` |
 | Clic en botones de tarjeta / etiqueta | Editar campo, borrar, mover campo, editar o borrar relación (delegación por `data-action`) |
-| Doble clic en tarjeta | Abre el editor de la tabla |
+| Clic en tarjeta (sin arrastrar) | Lleva la vista a la tabla como el buscador (`handlers.onFocusTable` → `focusTable`). Se distingue del arrastre porque el puntero no se aleja más de 4 px (`CLICK_MOVE_TOLERANCE`) y espera 260 ms (`SINGLE_CLICK_DELAY_MS`) para cancelarse si llega un doble clic; cualquier `mousedown` nuevo también lo cancela |
+| Doble clic en tarjeta | Abre el editor de la tabla (sin mover la vista) |
 | Doble clic en zona vacía | Abre el creador de tablas colocado en ese punto (si la tabla no tiene relaciones) |
 
 Cualquier interacción detiene una animación de cámara en curso. Barra de herramientas: −/+ (×1,25), campo de zoom editable (Enter aplica, Esc cancela, ↑/↓ ±10 %), *Ajustar* (animado).

@@ -10,6 +10,7 @@ import type { FkReferentialAction, RelationKind } from "../../domain/types.ts";
 import { fieldTypeLabel } from "../../diagram/layout.ts";
 import type { Store } from "../../state/store.ts";
 import { getFieldName, getTableById } from "../../state/store.ts";
+import { confirmDialog } from "../dialog.ts";
 import { showToast } from "../toast.ts";
 
 const RELATION_KIND_OPTIONS: SelectOption[] = [
@@ -154,7 +155,7 @@ export function wireRelationEditModal(store: Store): {
     const fromFieldName = getFieldName(state, relation.fromTableId, relation.fromFieldId);
     const toFieldName = getFieldName(state, relation.toTableId, relation.toFieldId);
 
-    titleEl.textContent = `Editar relacion: ${fromTableName}.${fromFieldName} -> ${toTableName}.${toFieldName}`;
+    titleEl.textContent = `Editar relación: ${fromTableName}.${fromFieldName} → ${toTableName}.${toFieldName}`;
     relationIdInputEl.value = relationId;
 
     refreshTableOptions();
@@ -239,7 +240,7 @@ export function wireRelationEditModal(store: Store): {
     modalEl.classList.add("hidden");
   });
 
-  deleteBtn.addEventListener("click", () => {
+  deleteBtn.addEventListener("click", async () => {
     const relationId = relationIdInputEl.value;
     if (!relationId) return;
     const state = store.getState();
@@ -250,7 +251,12 @@ export function wireRelationEditModal(store: Store): {
     const toTable = getTableById(state, relation.toTableId)?.name ?? "?";
     const fromField = getFieldName(state, relation.fromTableId, relation.fromFieldId);
     const toField = getFieldName(state, relation.toTableId, relation.toFieldId);
-    const ok = window.confirm(`Eliminar la relacion ${fromTable}.${fromField} -> ${toTable}.${toField}?`);
+    const ok = await confirmDialog({
+      title: "¿Eliminar la relación?",
+      message: `${fromTable}.${fromField} → ${toTable}.${toField}`,
+      confirmLabel: "Eliminar",
+      danger: true,
+    });
     if (!ok) return;
 
     store.dispatch({ type: "REMOVE_RELATION", relationId });

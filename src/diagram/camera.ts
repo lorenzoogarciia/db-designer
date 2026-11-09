@@ -38,31 +38,42 @@ export function detailLevelForZoom(zoom: number): DetailLevel {
   return "overview";
 }
 
-/** Grosor base de las relaciones en pantalla (px) a zoom normal. */
-export const RELATION_LINE_WIDTH = 2.5;
-/** Grosor maximo en pantalla con la vista muy alejada. */
-export const RELATION_LINE_WIDTH_MAX = 7;
+/** Grosor de las relaciones en pantalla (px) con el detalle completo. */
+export const RELATION_LINE_WIDTH = 2.25;
+/** Grosor minimo en pantalla con la vista muy alejada. */
+export const RELATION_LINE_WIDTH_MIN = 1.25;
+/** Zoom a partir del cual (y por debajo) las lineas tienen el grosor minimo. */
+const LINE_WIDTH_MIN_ZOOM = 0.08;
 
 /**
- * Grosor en pantalla de las lineas de relacion: constante con el detalle completo y creciendo
- * al alejar la vista (40 % ≈ 3,5 px, 25 % ≈ 5,3 px, desde ~15 % = 7 px), para que se sigan viendo.
+ * Grosor en pantalla de las lineas de relacion: constante con el detalle completo y ADELGAZANDO
+ * al alejar (escala logaritmica hasta 1,25 px al 8 %). Con muchas tablas las lineas gruesas se
+ * funden en bloques; finas, se distinguen las paralelas y los cruces.
  */
 export function relationLineWidth(zoom: number): number {
   const z = Math.max(zoom, ZOOM_FLOOR);
   if (z >= LOD_FULL_MIN_ZOOM) return RELATION_LINE_WIDTH;
-  const grown = RELATION_LINE_WIDTH * Math.pow(LOD_FULL_MIN_ZOOM / z, 0.85);
-  return clampValue(grown, RELATION_LINE_WIDTH, RELATION_LINE_WIDTH_MAX);
+  if (z <= LINE_WIDTH_MIN_ZOOM) return RELATION_LINE_WIDTH_MIN;
+  const t = Math.log(z / LINE_WIDTH_MIN_ZOOM) / Math.log(LOD_FULL_MIN_ZOOM / LINE_WIDTH_MIN_ZOOM);
+  return RELATION_LINE_WIDTH_MIN + (RELATION_LINE_WIDTH - RELATION_LINE_WIDTH_MIN) * t;
 }
 
 /** Lado del marco (en unidades del viewBox) en que se dibujan los simbolos de cardinalidad. */
 export const MARKER_VIEWBOX = 16;
+/** Tamano de los simbolos de cardinalidad en pantalla con el detalle completo. */
+export const CARDINALITY_MARKER_SIZE = 16;
+/** Tamano minimo en pantalla: por debajo dejan de distinguirse la barra y la pata de gallo. */
+export const CARDINALITY_MARKER_SIZE_MIN = 8;
 
 /**
- * Tamano en pantalla (px) de los simbolos de cardinalidad de los extremos (barra = "uno",
- * pata de gallo = "muchos"). Crece con la linea pero con tope, para no tapar tablas pequenas.
+ * Tamano en pantalla (px) de los simbolos de los extremos (barra = "uno", pata de gallo =
+ * "muchos"). Encogen al alejar, como las tarjetas (con la raiz del zoom, para que sigan
+ * leyendose), y nunca bajan de 8 px.
  */
 export function cardinalityMarkerSize(zoom: number): number {
-  return clampValue(relationLineWidth(zoom) * 4.5, 18, 28);
+  const z = Math.max(zoom, ZOOM_FLOOR);
+  if (z >= LOD_FULL_MIN_ZOOM) return CARDINALITY_MARKER_SIZE;
+  return Math.max(CARDINALITY_MARKER_SIZE_MIN, CARDINALITY_MARKER_SIZE * Math.sqrt(z / LOD_FULL_MIN_ZOOM));
 }
 
 /** Grosor del trazo de los simbolos, en unidades del viewBox, para que iguale al de la linea. */
@@ -72,13 +83,13 @@ export function cardinalityMarkerStroke(zoom: number): number {
 
 /**
  * Tamano en pantalla (px) del nombre de las tablas en vista general: el MISMO para todas las
- * tablas (solo depende del zoom). Baja de forma moderada al alejar mucho (14 px hasta el 25 %,
- * 10 px desde el 8 %) para que los nombres no se monten unos sobre otros.
+ * tablas (solo depende del zoom): 13 px hasta el 25 %, 11 px desde el 8 %. Siempre en una linea:
+ * si no cabe en la tarjeta, la tarjeta crece en pantalla (ver style.css, vista general).
  */
 export function overviewNameSize(zoom: number): number {
-  if (zoom >= 0.25) return 14;
-  if (zoom <= 0.08) return 10;
-  return Math.round((10 + ((zoom - 0.08) / (0.25 - 0.08)) * 4) * 10) / 10;
+  if (zoom >= 0.25) return 13;
+  if (zoom <= 0.08) return 11;
+  return Math.round((11 + ((zoom - 0.08) / (0.25 - 0.08)) * 2) * 10) / 10;
 }
 
 /**

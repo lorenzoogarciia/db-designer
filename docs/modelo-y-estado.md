@@ -70,6 +70,7 @@ Selectores útiles: `getActiveProject`, `getTableById`, `getFieldName`.
 |---|---|
 | `dbdesigner.state.v1` | `{ projects, activeProjectId }` |
 | `dbdesigner.theme.v1` | `"dark"` o `"light"` |
+| `dbdesigner.sidebar.v1` | `"open"` o `"collapsed"` (panel lateral; por debajo de 900 px se ignora y empieza plegado) |
 
 - `loadInitialState`: lee, acepta el formato antiguo (`{tables, relations, zoom}` → un proyecto "Proyecto principal"), normaliza campos y relaciones. **No** mueve coordenadas (el canvas es infinito). Sin datos, crea el proyecto de ejemplo (`domain/defaults.ts`: `users` y `posts`).
 - `saveState`: copia el estado activo al proyecto y escribe. Puede lanzar (cuota): `main.ts` lo captura y avisa.

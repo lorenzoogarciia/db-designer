@@ -45,7 +45,10 @@ Pautas:
 - **Capturas con retraso**: a veces muestran el fotograma anterior; repetir la captura antes de sacar conclusiones.
 - **CSS desfasado** tras la recarga en caliente: si una regla nueva "no funciona", comprobar que la hoja cargada la contiene y recargar.
 - Cambiar un módulo importado por `main.ts` recarga la página entera y corta los scripts en curso.
-- **Probar con proyectos grandes**: crear uno sintético escribiendo `localStorage['dbdesigner.state.v1']` con unas 160 tablas en rejilla y ~220 relaciones, y recargar. Al terminar, borrar los proyectos de prueba del almacenamiento del navegador integrado.
+- **Probar con proyectos grandes**: crear uno sintético escribiendo `localStorage['dbdesigner.state.v1']` con unas 160 tablas en rejilla y ~220 relaciones, y recargar. Otra vía, más realista: generar un DDL con un script, dejarlo **temporalmente** en `public/` (Vite lo sirve), leerlo con `fetch` en la página y pasarlo por *Importar SQL* como proyecto nuevo. Al terminar, borrar el fichero de `public/` y el proyecto de prueba, y volver a dejar activo el proyecto que el usuario tenía abierto.
+- **Animaciones lentas en el panel**: los `requestAnimationFrame` van limitados y una animación de cámara de 320 ms puede tardar más de 1 s. Leer el estado tras esperar 2 s, no justo después del clic.
+- **Al probar arrastres**, apuntar el inicio sobre la tarjeta calculando su posición en pantalla (`getBoundingClientRect` × escala de la captura): si cae en el fondo, desplaza la vista en vez de mover la tabla. Dejar las tablas del usuario donde estaban.
+- **Interacción por JS**: el campo de zoom se aplica con un `KeyboardEvent('keydown', {key: 'Enter'})`; un `\n` escrito con la herramienta de teclado no lo dispara.
 - **Exportación PNG sin descargar**: importar `renderDiagramCanvas` desde `/src/services/png-export.ts` y pasarle un objeto con `getContentBounds`, `getDiagramElement` y `getWorldElement`; mostrar el canvas resultante en una superposición.
 
 ## Limitaciones conocidas y posibles mejoras
@@ -55,7 +58,9 @@ Pautas:
 | Longitud y precisión de tipos | No se modelan (`VARCHAR(255)`, `DECIMAL(10,2)` fijos por tipo). Al importar se pierden |
 | Índices y UNIQUE compuestos | No se modelan (se importan como individuales, con aviso) |
 | PK compuesta | Se conserva (importación, editor), pero los formularios y `applyFieldRules` imponen una sola PK al editar un campo suelto |
-| Relaciones distintas por el mismo pasillo | Pueden superponerse en un tramo; los carriles solo separan relaciones idénticas |
+| Relaciones distintas por el mismo pasillo | Pueden superponerse en un tramo; los carriles solo separan relaciones idénticas. Con líneas finas y el resaltado al pasar el ratón se siguen, pero separarlas de verdad exige cambiar el enrutado (`lib/relation-routing.ts`) |
+| Vista general en proyectos densos | Las cajas crecen para que el nombre entre entero en una línea y pueden montarse sobre la vecina (decisión del usuario: nunca ocultar ni cortar nombres). Al pasar el ratón se ponen delante |
+| Nombres muy largos en vista compacta | Se ven enteros pero pequeños: el texto no baja del tamaño de `full` ni pasa del ancho de la tarjeta |
 | Deshacer/rehacer | No existe. El reducer es casi puro, pero `syncActiveProjectFromState`/`saveState` mutan el proyecto (aceptado por ahora) |
 | Exportar PNG en proyectos enormes | Lento (html2canvas): unos 16 s con 160 tablas |
 | Rutas con muchas relaciones en zonas muy densas | Correctas y ortogonales, pero pueden cruzar tablas si no hay otro camino (obstáculos "blandos") |

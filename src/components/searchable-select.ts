@@ -48,7 +48,7 @@ export function mountSearchableSelect(
   host.innerHTML = `
     <button type="button" class="combobox-trigger" aria-haspopup="listbox">
       <span class="combobox-value">${options.placeholder ?? "Seleccionar..."}</span>
-      <span class="combobox-chevron">▾</span>
+      <span class="combobox-chevron"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
     </button>
     <div class="combobox-panel hidden" role="listbox">
       <input type="text" class="combobox-search" placeholder="${options.searchPlaceholder ?? "Buscar..."}" autocomplete="off" />
