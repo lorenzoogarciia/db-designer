@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Field, Relation, Table } from "../domain/types.ts";
 import { computeAutoLayout, isotonic, overviewBoxWorldWidth } from "./auto-layout.ts";
+import { fitZoom, overviewNameSize } from "./camera.ts";
 import { TABLE_HEADER_HEIGHT, TABLE_ROW_HEIGHT } from "./constants.ts";
 import { getTableHeight } from "./layout.ts";
 
@@ -176,5 +177,66 @@ describe("computeAutoLayout", () => {
         if (i < j && a.y === b.y) expect(Math.abs(a.x - b.x)).toBeGreaterThanOrEqual(box * 0.95);
       }),
     );
+  });
+
+  it("encuadrado en vista general, ninguna caja de nombre se monta sobre otra (ni en alto ni en ancho)", () => {
+    // Proyecto denso con cadenas de FK largas (muchas capas) y nombres largos, como uno real.
+    let seed = 3;
+    const random = () => {
+      seed = (seed * 16807) % 2147483647;
+      return seed / 2147483647;
+    };
+    const tables: Table[] = [];
+    const relations: Relation[] = [];
+    for (let index = 0; index < 70; index += 1) {
+      const fieldCount = 2 + Math.floor(random() * 8);
+      const created = table(`modulo_entidad_${"x".repeat(Math.floor(random() * 14))}_${index}`, [
+        "id",
+        ...Array.from({ length: fieldCount }, (_, k) => `f${k}`),
+      ]);
+      tables.push(created);
+      // Cada tabla referencia a alguna de las últimas: cadenas de muchas capas.
+      if (index > 0 && random() < 0.9) {
+        const target = tables[Math.max(0, index - 1 - Math.floor(random() * 4))];
+        relations.push(fk(created, "f0", target));
+        if (random() < 0.5) relations.push(fk(created, "f1", tables[Math.floor(random() * index)]));
+      }
+    }
+    const getWidth = (t: Table) => 260 + t.name.length * 3;
+    const measure = (name: string, fontPx: number) => name.length * fontPx * 0.5;
+    for (const viewport of [
+      { width: 1276, height: 808 },
+      { width: 1500, height: 700 },
+      { width: 1900, height: 950 },
+    ]) {
+      const positions = computeAutoLayout(tables, relations, { getTableWidth: getWidth, viewport, measureOverviewName: measure });
+      const rects = tables.map((t) => ({ t, ...positions.get(t.id)!, w: getWidth(t), h: getTableHeight(t) }));
+      const minX = Math.min(...rects.map((r) => r.x));
+      const minY = Math.min(...rects.map((r) => r.y));
+      const zoom = Math.min(
+        1,
+        fitZoom(
+          { minX, minY, maxX: Math.max(...rects.map((r) => r.x + r.w)), maxY: Math.max(...rects.map((r) => r.y + r.h)) },
+          viewport.width,
+          viewport.height,
+        ),
+      );
+      expect(zoom).toBeLessThan(0.33);
+      // Al menos un zoom razonable: la reserva no puede dejarlo todo diminuto.
+      expect(zoom).toBeGreaterThan(0.05);
+      // Caja pintada: nombre + relleno (8 px) + borde (1,5 px), centrada sobre la tabla.
+      const fontPx = overviewNameSize(zoom);
+      const boxes = rects.map((r) => {
+        const w = Math.max(r.w, (measure(r.t.name, fontPx) + 16 + 3) / zoom);
+        const h = Math.max(r.h, (fontPx * 1.2 + 8 + 3) / zoom);
+        return { id: r.t.id, x: r.x + r.w / 2 - w / 2, y: r.y + r.h / 2 - h / 2, w, h };
+      });
+      boxes.forEach((a, i) =>
+        boxes.slice(i + 1).forEach((b) => {
+          const overlap = a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+          expect(overlap, `${a.id} / ${b.id} (${viewport.width}×${viewport.height})`).toBe(false);
+        }),
+      );
+    }
   });
 });

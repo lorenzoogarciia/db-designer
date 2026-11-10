@@ -46,7 +46,7 @@ El zoom se persiste en el proyecto con `SET_ZOOM` 500 ms después del último ca
 |---|---|---|
 | `full` | ≥ 0,60 | Tarjeta completa con botones (subir/bajar, editar, borrar) y metadatos largos |
 | `compact` | 0,33–0,60 | Sin botones; nombre de campo y tipo corto (`.field-meta-short`). El texto se compensa (`Npx / zoom`) pero sin pasar del ancho de la tarjeta: `container-type: inline-size` en la tarjeta y `min(…, (100cqw − margen) / (--len × ancho medio))`, con `--len` = nº de caracteres que pone `table-renderer.ts`, y nunca por debajo del tamaño de `full` (con el que se midió la tarjeta). Así el nombre va siempre entero en una línea; si es muy largo, más pequeño. Si no cabe todo, se recorta antes el tipo. Etiquetas de relación ampliadas con `--label-scale` |
-| `overview` | < 0,33 | Cada tabla es una caja con su nombre **completo en una línea** a tamaño fijo en pantalla (13 px → 11 px con la vista muy alejada). La caja (`.table-card-title`) mide como mínimo lo que la tabla real y crece, centrada, si el nombre no cabe; en proyectos densos puede montarse sobre la vecina (la de debajo del ratón y sus relacionadas pasan delante). Los anclajes de las líneas no cambian. Sin etiquetas de relación; líneas continuas |
+| `overview` | < 0,33 | Cada tabla es una caja con su nombre **completo en una línea** a tamaño fijo en pantalla (13 px → 11 px con la vista muy alejada). La caja (`.table-card-title`) mide como mínimo lo que la tabla real y crece, centrada, si el nombre no cabe; en proyectos densos puede montarse sobre la vecina salvo tras *Organizar*, que reserva su hueco (la de debajo del ratón y sus relacionadas pasan delante). Los anclajes de las líneas no cambian. Sin etiquetas de relación; líneas continuas |
 
 Todo se hace con CSS (`.diagram-world[data-lod="…"] …`) sobre el mismo DOM. **Las dimensiones de la tarjeta no cambian entre niveles**: el ancho se mide en `full` y se fija; el alto es `getTableHeight` = 64 + 42 × campos. Así las rutas y los anclajes valen para cualquier zoom.
 
@@ -101,19 +101,19 @@ Cualquier interacción detiene una animación de cámara en curso. Barra de herr
 
 ## Organizar (`auto-layout.ts`)
 
-Botón *Organizar* de la barra superior del lienzo. `computeAutoLayout(tablas, relaciones, {getTableWidth, viewport, origin})` es pura y devuelve la posición de cada tabla; `main.ts` la aplica con `SET_TABLE_POSITIONS` (una sola acción, guardado inmediato) y ofrece *Deshacer* en el aviso con las posiciones anteriores.
+Botón *Organizar* de la barra superior del lienzo. `computeAutoLayout(tablas, relaciones, {getTableWidth, measureOverviewName, viewport, origin})` es pura y devuelve la posición de cada tabla; `main.ts` la aplica con `SET_TABLE_POSITIONS` (una sola acción, guardado inmediato) y ofrece *Deshacer* en el aviso con las posiciones anteriores.
 
 Algoritmo (disposición por capas, de izquierda a derecha):
 
 1. **Componentes**: grafo de FKs (sin autorrelaciones). Las tablas sin relaciones forman una rejilla alfabética aparte.
 2. **Capas**: camino más largo (una tabla va a la derecha de las que referencia; los ciclos se rompen por DFS) y después cada tabla se acerca a sus hijas para acortar líneas.
 3. **Orden** dentro de la capa: baricentro de las vecinas, 16 pasadas alternas.
-4. **Subcolumnas**: una capa más alta que `√(área / proporción) × 1,1` se reparte en varias columnas equilibradas.
-5. **X**: columnas con el ancho de su tabla más ancha (tablas centradas) y pasillos de 120 px + 9 px por cada línea que los cruza (máx. 300), para que el enrutado tenga sitio.
+4. **Forma**: las capas demasiado altas se reparten en subcolumnas equilibradas y, si las columnas no caben a lo ancho (cadenas de FK largas), se parten en **bandas** consecutivas apiladas hacia abajo, como un texto que salta de línea (dentro de cada banda se lee de izquierda a derecha). Se prueban 12 alturas de columna y el número de bandas cercano al ideal, y se elige la forma que mejor encaja en la proporción (`max(ancho / proporción, alto)` mínimo). Con filas alineadas cada banda extra cuesta un 35 % más, para preferir una sola.
+5. **X** (por banda): columnas con el ancho de su tabla más ancha (tablas centradas) y pasillos de 120 px + 9 px por cada línea que los cruza (máx. 300), para que el enrutado tenga sitio.
 6. **Y**: cada tabla quiere alinear la fila de su FK con la fila referenciada (líneas horizontales rectas). Por columna se resuelve con regresión isotónica ponderada (PAV), que respeta el orden y la separación de 64 px; 14 pasadas alternas.
-7. **Empaquetado**: los componentes, de mayor a menor, en estantes con la proporción del lienzo (acotada a 0,8–2,4).
+7. **Empaquetado**: los componentes, de mayor a menor, en estantes; se prueban varios anchos de estante y varias rejillas para las tablas sueltas y se queda la forma que mejor encaja. La proporción es la del hueco que deja *Ajustar* (lienzo menos `FIT_PADDING`, acotada a 0,8–3).
 
-**Vista general**: si el encuadre previsto cae por debajo del 33 %, el nombre se pinta a tamaño fijo en pantalla y la caja puede crecer más que la tabla. Se reservan huecos con ese ancho (`overviewBoxWorldWidth`) siempre que el encuadre no pierda más de un 15 %; si no cabe, se prueba una reserva parcial (hasta 2×, 1,6×… el ancho real). En proyectos muy grandes puede seguir habiendo roces entre nombres al encuadrar.
+**Vista general**: si el encuadre previsto cae por debajo del 33 %, el nombre se pinta a tamaño fijo en pantalla y la caja crece más que la tabla, a lo ancho **y a lo alto** (a un 8 % de zoom, una caja de ~34 px de alto ocupa ~400 unidades del mundo, más que muchas tablas). Para un zoom de reserva `z` cada tabla reserva el ancho (`overviewBoxWorldWidth`, con el nombre medido con la fuente real mediante `measureOverviewName`; sin medidor se estima a 0,64 em por carácter) y el alto (`overviewBoxWorldHeight`, repartido por encima y por debajo, `padY`) de su caja. Reservar agranda el diagrama y aleja el encuadre, lo que a su vez agranda las cajas: se busca por bisección (entre 2 % y 33 %) el **mayor `z` cuyo encuadre previsto sea ≥ `z`**; con ese encuadre ninguna caja pisa a otra. En este modo no se alinean filas FK↔PK (no se ven y estirarían las columnas): las columnas se apilan compactas. Con el proyecto real de 67 tablas del usuario el encuadre queda en ~9,7 % sin solapes.
 
 El resultado es determinista y su esquina coincide con la del contenido anterior, así que organizar dos veces seguidas no mueve nada («Las tablas ya están organizadas»). Animación: `animateNextLayoutChange` pone `.is-arranging` en `#diagram` durante `LAYOUT_ANIMATION_MS` (520 ms): las tarjetas se deslizan con `transition` y las capas de relaciones se ocultan hasta que llegan; la cámara encuadra a la vez.
 

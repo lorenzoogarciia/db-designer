@@ -14,8 +14,10 @@
  * 7. Los componentes se empaquetan en estantes con proporción ~16:10.
  *
  * Para que se vea bien a cualquier zoom, si el diagrama encuadrado queda en vista general
- * (donde el nombre se pinta a tamaño fijo en pantalla y la caja puede crecer) se recalcula
- * reservando el ancho que ocupará ese nombre.
+ * (donde el nombre se pinta a tamaño fijo en pantalla y la caja crece hasta contenerlo) se
+ * recalcula reservando el ancho y el alto que ocupará esa caja. Como la reserva agranda el
+ * diagrama y eso aleja el encuadre (y la caja crece aún más en el mundo), se busca el mayor
+ * zoom de reserva que el propio encuadre respeta: así, encuadrado, ninguna caja pisa a otra.
  */
 import type { Relation, Table } from "../domain/types.ts";
 import { FIT_PADDING, LOD_COMPACT_MIN_ZOOM, overviewNameSize } from "./camera.ts";
@@ -24,6 +26,11 @@ import { getTableHeight, type TableWidthResolver } from "./layout.ts";
 
 export interface AutoLayoutOptions {
   getTableWidth: TableWidthResolver;
+  /**
+   * Ancho en px del nombre pintado en vista general con ese tamaño de letra (en la UI se mide
+   * con la fuente real). Sin él se estima por número de caracteres, con holgura.
+   */
+  measureOverviewName?: OverviewNameMeasurer;
   /** Tamaño del lienzo en px: sirve para prever el zoom de *Ajustar* y la vista general. */
   viewport?: { width: number; height: number };
   /** Esquina superior izquierda del resultado (por defecto 0, 0). */
@@ -31,12 +38,22 @@ export interface AutoLayoutOptions {
 }
 
 export type LayoutPositions = Map<string, { x: number; y: number }>;
+export type OverviewNameMeasurer = (name: string, fontPx: number) => number;
 
 const COLUMN_GAP_MIN = 120;
 const COLUMN_GAP_PER_EDGE = 9;
 const COLUMN_GAP_MAX = 300;
 const ROW_GAP = 64;
 const COMPONENT_GAP = 220;
+/** Separación vertical entre bandas de columnas y cuánto puede pasarse una banda del ancho buscado. */
+const BAND_GAP = 200;
+/** Recargo de cada banda extra cuando se alinean filas (preferir la lectura en una sola banda). */
+const BAND_PENALTY = 0.35;
+/** Alturas de columna que se prueban para dar forma a cada componente. */
+const SHAPE_CANDIDATES = 12;
+/** Anchos de estante y rejillas de tablas sueltas que se prueban al empaquetar. */
+const SHELF_CANDIDATES = 10;
+const ISOLATED_COLUMN_OPTIONS = 8;
 const ISOLATED_GAP_X = 90;
 const ISOLATED_GAP_Y = 70;
 /** Proporción ancho:alto buscada sin lienzo conocido; con lienzo, la suya (acotada). */
@@ -48,10 +65,14 @@ const OVERVIEW_CHAR_EM = 0.64;
 const OVERVIEW_BOX_PADDING_PX = 22;
 /** Margen en pantalla entre cajas vecinas de la vista general. */
 const OVERVIEW_SPACING_PX = 14;
-/** Lo más que puede alejar el encuadre la reserva de nombres (respecto al encuadre sin ella). */
-const OVERVIEW_MIN_FIT_RATIO = 0.85;
-/** Reservas parciales que se prueban (ancho máximo reservado = ancho real × factor). */
-const OVERVIEW_PARTIAL_CAPS = [2, 1.6, 1.35, 1.15];
+/** Alto de la caja en pantalla: línea de texto (1,2 em), relleno (4 px × 2) y borde (1,5 px × 2). */
+const OVERVIEW_LINE_EM = 1.2;
+const OVERVIEW_BOX_VERTICAL_PX = 11;
+/** Margen vertical en pantalla entre cajas vecinas de la vista general. */
+const OVERVIEW_SPACING_Y_PX = 10;
+/** Zoom mínimo de reserva que se prueba y pasos de la búsqueda binaria. */
+const OVERVIEW_MIN_RESERVE_ZOOM = 0.02;
+const OVERVIEW_SEARCH_STEPS = 14;
 
 interface Node {
   table: Table;
@@ -59,6 +80,8 @@ interface Node {
   /** Ancho reservado (≥ width): incluye la caja de la vista general si es más ancha. */
   slot: number;
   height: number;
+  /** Alto reservado por encima y por debajo de la tabla para la caja de la vista general. */
+  padY: number;
 }
 
 interface Edge {
@@ -80,48 +103,63 @@ function compareTables(a: Table, b: Table): number {
 }
 
 /** Ancho que ocupa en el mundo la caja del nombre en vista general con ese zoom. */
-export function overviewBoxWorldWidth(name: string, zoom: number): number {
+export function overviewBoxWorldWidth(name: string, zoom: number, measure?: OverviewNameMeasurer): number {
   const fontPx = overviewNameSize(zoom);
-  return (name.length * fontPx * OVERVIEW_CHAR_EM + OVERVIEW_BOX_PADDING_PX + OVERVIEW_SPACING_PX) / zoom;
+  const textPx = measure ? measure(name, fontPx) : name.length * fontPx * OVERVIEW_CHAR_EM;
+  return (textPx + OVERVIEW_BOX_PADDING_PX + OVERVIEW_SPACING_PX) / zoom;
+}
+
+/** Alto que ocupa en el mundo la caja del nombre en vista general (con su margen). */
+export function overviewBoxWorldHeight(zoom: number): number {
+  const fontPx = overviewNameSize(zoom);
+  return (fontPx * OVERVIEW_LINE_EM + OVERVIEW_BOX_VERTICAL_PX + OVERVIEW_SPACING_Y_PX) / zoom;
 }
 
 export function computeAutoLayout(tables: Table[], relations: Relation[], options: AutoLayoutOptions): LayoutPositions {
   if (tables.length === 0) return new Map();
   const origin = options.origin ?? { x: 0, y: 0 };
 
+  // Proporción del hueco que deja «Ajustar» (el lienzo menos su margen).
   const aspect = options.viewport
-    ? Math.min(2.4, Math.max(0.8, options.viewport.width / Math.max(1, options.viewport.height)))
+    ? Math.min(
+        3,
+        Math.max(
+          0.8,
+          Math.max(1, options.viewport.width - FIT_PADDING * 2) / Math.max(1, options.viewport.height - FIT_PADDING * 2),
+        ),
+      )
     : DEFAULT_ASPECT;
-  let result = layoutOnce(tables, relations, options.getTableWidth, null, aspect);
+  let result = layoutOnce(tables, relations, options, null, aspect);
   if (options.viewport) {
-    // Prever el zoom de «Ajustar»: si cae en vista general, reservar el ancho de los nombres.
-    // Reservar más ancho aleja el encuadre y agranda los nombres en el mundo (en proyectos
-    // grandes el reparto perfecto dejaría todo diminuto). Se reserva para zooms cada vez menores
-    // mientras el encuadre no pierda más de un 15 %; si se alcanza zoom ≤ encuadre, ningún
-    // nombre se monta ni siquiera encuadrado. Si no, se montan solo por debajo de ese zoom.
-    const plainZoom = predictFitZoom(result, options.viewport);
-    if (plainZoom < LOD_COMPACT_MIN_ZOOM) {
-      const minFit = plainZoom * OVERVIEW_MIN_FIT_RATIO;
-      let reserveZoom = plainZoom;
-      let reserved = false;
-      for (let attempt = 0; attempt < 8; attempt += 1) {
-        const candidate = layoutOnce(tables, relations, options.getTableWidth, reserveZoom, aspect);
-        const fit = predictFitZoom(candidate, options.viewport);
-        if (fit < minFit) break;
-        result = candidate;
-        reserved = true;
-        if (reserveZoom <= fit) break;
-        reserveZoom *= 0.9;
-      }
-      // Ni eso cabe (nombres muy largos): reserva parcial, limitada a un múltiplo del ancho real.
-      if (!reserved) {
-        for (const cap of OVERVIEW_PARTIAL_CAPS) {
-          const candidate = layoutOnce(tables, relations, options.getTableWidth, plainZoom, aspect, cap);
-          if (predictFitZoom(candidate, options.viewport) >= minFit) {
-            result = candidate;
-            break;
-          }
+    const viewport = options.viewport;
+    // Prever el zoom de «Ajustar»: si cae en vista general, reservar el hueco de las cajas.
+    // Con huecos reservados para el zoom z, el encuadre resultante debe ser ≥ z: entonces,
+    // encuadrado, ninguna caja se monta. Se busca el mayor z que lo cumple (cuanto mayor, más
+    // compacto). Si ni el mínimo lo cumple, se usa el que más se acerca.
+    if (predictFitZoom(result, viewport) < LOD_COMPACT_MIN_ZOOM) {
+      const cache = new Map<number, { block: Block; ratio: number }>();
+      const attempt = (zoom: number) => {
+        let entry = cache.get(zoom);
+        if (!entry) {
+          const block = layoutOnce(tables, relations, options, zoom, aspect);
+          entry = { block, ratio: predictFitZoom(block, viewport) / zoom };
+          cache.set(zoom, entry);
         }
+        return entry;
+      };
+      let low = OVERVIEW_MIN_RESERVE_ZOOM;
+      let high = LOD_COMPACT_MIN_ZOOM;
+      if (attempt(high).ratio >= 1) {
+        result = attempt(high).block;
+      } else if (attempt(low).ratio >= 1) {
+        for (let step = 0; step < OVERVIEW_SEARCH_STEPS; step += 1) {
+          const middle = Math.sqrt(low * high);
+          if (attempt(middle).ratio >= 1) low = middle;
+          else high = middle;
+        }
+        result = attempt(low).block;
+      } else {
+        result = [...cache.values()].reduce((best, entry) => (entry.ratio > best.ratio ? entry : best)).block;
       }
     }
   }
@@ -147,17 +185,20 @@ function predictFitZoom(block: Block, viewport: { width: number; height: number 
 function layoutOnce(
   tables: Table[],
   relations: Relation[],
-  getTableWidth: TableWidthResolver,
+  options: AutoLayoutOptions,
   overviewZoom: number | null,
   aspect: number,
-  slotCap = Infinity,
 ): Block {
   const nodes = new Map<string, Node>();
+  const boxHeight = overviewZoom === null ? 0 : overviewBoxWorldHeight(overviewZoom);
   tables.forEach((table) => {
-    const width = getTableWidth(table);
+    const width = options.getTableWidth(table);
+    const height = getTableHeight(table);
     const slot =
-      overviewZoom === null ? width : Math.max(width, Math.min(width * slotCap, overviewBoxWorldWidth(table.name, overviewZoom)));
-    nodes.set(table.id, { table, width, slot, height: getTableHeight(table) });
+      overviewZoom === null
+        ? width
+        : Math.max(width, overviewBoxWorldWidth(table.name, overviewZoom, options.measureOverviewName));
+    nodes.set(table.id, { table, width, slot, height, padY: Math.max(0, (boxHeight - height) / 2) });
   });
 
   const edges: Edge[] = [];
@@ -210,16 +251,35 @@ function layoutOnce(
       component.map((id) => nodes.get(id)!),
       edges.filter((edge) => ids.has(edge.from)),
       aspect,
+      overviewZoom === null,
     );
   });
   blocks.sort((a, b) => b.width * b.height - a.width * a.height);
-  if (isolated.length > 0) blocks.push(layoutIsolated(isolated, aspect));
-  return packBlocks(blocks, aspect);
+  if (isolated.length === 0) return packBlocks(blocks, aspect);
+  // Las tablas sueltas se prueban en rejillas de distinto número de columnas: según el hueco
+  // que dejen los componentes conviene una tira, un bloque o una columna.
+  const counts = new Set([preferredIsolatedColumns(isolated, aspect)]);
+  for (let count = 1; count <= Math.min(isolated.length, ISOLATED_COLUMN_OPTIONS); count += 1) counts.add(count);
+  let best: Block | null = null;
+  counts.forEach((count) => {
+    const packed = packBlocks([...blocks, layoutIsolated(isolated, count)], aspect);
+    if (!best || shapeScore(packed, aspect) < shapeScore(best, aspect) - 1e-6) best = packed;
+  });
+  return best!;
+}
+
+/** Cuánto ocupa un bloque escalado a la proporción buscada (menor = encaja mejor). */
+function shapeScore(block: Block, aspect: number): number {
+  return Math.max(block.width / aspect, block.height);
 }
 
 /* --------------------------- un componente --------------------------- */
 
-function layoutComponent(componentNodes: Node[], edges: Edge[], aspect: number): Block {
+/**
+ * alignRows: alinear la fila de la FK con la referenciada. En vista general las filas no se ven
+ * y estirar las columnas para alinearlas haría el diagrama mucho más alto: se apilan compactas.
+ */
+function layoutComponent(componentNodes: Node[], edges: Edge[], aspect: number, alignRows: boolean): Block {
   const byId = new Map(componentNodes.map((node) => [node.table.id, node]));
   const ids = [...byId.keys()].sort((a, b) => compareTables(byId.get(a)!.table, byId.get(b)!.table));
 
@@ -300,16 +360,62 @@ function layoutComponent(componentNodes: Node[], edges: Edge[], aspect: number):
 
   orderByBarycenter(layers, layer, neighbors);
 
-  // Repartir capas demasiado altas en subcolumnas.
-  const area = componentNodes.reduce((sum, node) => sum + (node.slot + COLUMN_GAP_MIN) * (node.height + ROW_GAP), 0);
-  const maxColumnHeight = Math.max(
-    ...componentNodes.map((node) => node.height),
-    Math.sqrt(area / aspect) * 1.1,
-  );
+  // Forma del componente: las capas demasiado altas se reparten en subcolumnas y, si las
+  // columnas no caben a lo ancho (cadenas de FK largas o cajas de la vista general muy anchas),
+  // se parten en bandas consecutivas que se apilan hacia abajo, como un texto que salta de
+  // línea (dentro de cada banda se mantiene el orden de izquierda a derecha). Se prueban varias
+  // alturas de columna y números de bandas y se elige la forma que mejor encaja en la proporción.
+  const maxNodeHeight = Math.max(...componentNodes.map(outerHeight));
+  const tallestLayer = Math.max(...layers.map((ordered) => stackHeight(ordered, byId)));
+  let best: { columns: string[][]; bands: number[][]; score: number } | null = null;
+  for (let step = 0; step < SHAPE_CANDIDATES; step += 1) {
+    const ratio = step / (SHAPE_CANDIDATES - 1);
+    const maxColumnHeight = maxNodeHeight * Math.pow(Math.max(1, tallestLayer / maxNodeHeight), ratio);
+    const columns = splitLayers(layers, byId, maxColumnHeight);
+    const widths = columns.map((column) => Math.max(...column.map((id) => byId.get(id)!.slot)));
+    const heights = columns.map((column) => stackHeight(column, byId));
+    const totalWidth = widths.reduce((sum, width) => sum + width + COLUMN_GAP_MIN, -COLUMN_GAP_MIN);
+    const ideal = Math.sqrt(totalWidth / (Math.max(...heights) * aspect));
+    const counts = new Set([Math.floor(ideal), Math.ceil(ideal), 1].map((count) => Math.min(columns.length, Math.max(1, count))));
+    counts.forEach((count) => {
+      const bands = partitionColumns(widths, count);
+      const bandWidth = Math.max(...bands.map((band) => band.reduce((sum, index) => sum + widths[index] + COLUMN_GAP_MIN, -COLUMN_GAP_MIN)));
+      const bandHeight = bands.reduce((sum, band) => sum + Math.max(...band.map((index) => heights[index])) + BAND_GAP, -BAND_GAP);
+      // Con filas alineadas (zoom de trabajo) las bandas cuestan más: se prefiere una sola.
+      const penalty = alignRows ? 1 + BAND_PENALTY * (bands.length - 1) : 1;
+      const score = Math.max(bandWidth / aspect, bandHeight) * penalty;
+      if (!best || score < best.score - 1e-6) best = { columns, bands, score };
+    });
+  }
+  const { columns, bands } = best!;
+
+  const positions: LayoutPositions = new Map();
+  let width = 0;
+  let cursorY = 0;
+  bands.forEach((band) => {
+    if (band.length === 0) return;
+    const placed = placeColumns(
+      band.map((index) => columns[index]),
+      byId,
+      edges,
+      alignRows,
+    );
+    placed.positions.forEach((point, id) => positions.set(id, { x: point.x, y: point.y + cursorY }));
+    width = Math.max(width, placed.width);
+    cursorY += placed.height + BAND_GAP;
+  });
+  return { width, height: cursorY - BAND_GAP, positions };
+}
+
+function stackHeight(ids: string[], byId: Map<string, Node>): number {
+  return ids.reduce((sum, id) => sum + outerHeight(byId.get(id)!) + ROW_GAP, -ROW_GAP);
+}
+
+/** Reparte cada capa más alta que maxColumnHeight en subcolumnas de alto parecido. */
+function splitLayers(layers: string[][], byId: Map<string, Node>, maxColumnHeight: number): string[][] {
   const columns: string[][] = [];
   layers.forEach((ordered) => {
-    const total = ordered.reduce((sum, id) => sum + byId.get(id)!.height + ROW_GAP, -ROW_GAP);
-    const count = Math.max(1, Math.ceil(total / maxColumnHeight));
+    const count = Math.max(1, Math.ceil(stackHeight(ordered, byId) / maxColumnHeight - 1e-9));
     if (count === 1) {
       columns.push(ordered);
       return;
@@ -320,14 +426,41 @@ function layoutComponent(componentNodes: Node[], edges: Edge[], aspect: number):
       let target = 0;
       for (let index = 1; index < count; index += 1) if (heights[index] < heights[target]) target = index;
       split[target].push(id);
-      heights[target] += byId.get(id)!.height + ROW_GAP;
+      heights[target] += outerHeight(byId.get(id)!) + ROW_GAP;
     });
     columns.push(...split.filter((column) => column.length > 0));
   });
+  return columns;
+}
 
-  // X: ancho de cada columna y pasillos según las líneas que los cruzan.
+/** Parte las columnas (en orden) en `count` tramos consecutivos de ancho parecido. */
+function partitionColumns(widths: number[], count: number): number[][] {
+  const total = widths.reduce((sum, width) => sum + width + COLUMN_GAP_MIN, 0);
+  const bands: number[][] = [[]];
+  let bandWidth = 0;
+  widths.forEach((width, index) => {
+    const current = bands[bands.length - 1];
+    const remainingColumns = widths.length - index;
+    const remainingBands = count - bands.length;
+    if (
+      current.length > 0 &&
+      remainingBands > 0 &&
+      (bandWidth + width / 2 > total / count || remainingColumns <= remainingBands)
+    ) {
+      bands.push([]);
+      bandWidth = 0;
+    }
+    bands[bands.length - 1].push(index);
+    bandWidth += width + COLUMN_GAP_MIN;
+  });
+  return bands;
+}
+
+/** Coloca columnas consecutivas: X con pasillos según las líneas que los cruzan, Y alineando FK ↔ PK. */
+function placeColumns(columns: string[][], byId: Map<string, Node>, allEdges: Edge[], alignRows: boolean): Block {
   const columnOf = new Map<string, number>();
   columns.forEach((column, index) => column.forEach((id) => columnOf.set(id, index)));
+  const edges = allEdges.filter((edge) => columnOf.has(edge.from) && columnOf.has(edge.to));
   const crossing = new Array<number>(Math.max(0, columns.length - 1)).fill(0);
   edges.forEach((edge) => {
     const a = columnOf.get(edge.from)!;
@@ -343,8 +476,7 @@ function layoutComponent(componentNodes: Node[], edges: Edge[], aspect: number):
     cursorX += columnWidths[index] + gap;
   });
 
-  // Y: alinear filas FK ↔ PK.
-  const y = alignVertically(columns, byId, edges, columnOf);
+  const y = alignVertically(columns, byId, edges, columnOf, alignRows ? ALIGN_SWEEPS : 0);
 
   const positions: LayoutPositions = new Map();
   let minY = Infinity;
@@ -353,14 +485,24 @@ function layoutComponent(componentNodes: Node[], edges: Edge[], aspect: number):
     column.forEach((id) => {
       const node = byId.get(id)!;
       const top = y.get(id)!;
-      minY = Math.min(minY, top);
-      maxY = Math.max(maxY, top + node.height);
+      minY = Math.min(minY, top - node.padY);
+      maxY = Math.max(maxY, top + node.height + node.padY);
       positions.set(id, { x: columnX[index] + (columnWidths[index] - node.width) / 2, y: top });
     }),
   );
   positions.forEach((point) => (point.y -= minY));
   const lastColumn = columns.length - 1;
   return { width: columnX[lastColumn] + columnWidths[lastColumn], height: maxY - minY, positions };
+}
+
+/** Alto que ocupa una tabla contando la caja de la vista general que se le reserva. */
+function outerHeight(node: Node): number {
+  return node.height + node.padY * 2;
+}
+
+/** Distancia mínima entre el borde superior de una tabla y el de la siguiente de su columna. */
+function stackStep(above: Node, below: Node): number {
+  return above.height + above.padY + ROW_GAP + below.padY;
 }
 
 function clampGap(value: number): number {
@@ -408,14 +550,15 @@ function alignVertically(
   byId: Map<string, Node>,
   edges: Edge[],
   columnOf: Map<string, number>,
+  sweeps: number,
 ): Map<string, number> {
   const y = new Map<string, number>();
   columns.forEach((column) => {
-    const total = column.reduce((sum, id) => sum + byId.get(id)!.height + ROW_GAP, -ROW_GAP);
-    let cursor = -total / 2;
-    column.forEach((id) => {
+    const total = column.reduce((sum, id) => sum + outerHeight(byId.get(id)!) + ROW_GAP, -ROW_GAP);
+    let cursor = -total / 2 + byId.get(column[0])!.padY;
+    column.forEach((id, index) => {
       y.set(id, cursor);
-      cursor += byId.get(id)!.height + ROW_GAP;
+      if (index + 1 < column.length) cursor += stackStep(byId.get(id)!, byId.get(column[index + 1])!);
     });
   });
 
@@ -425,7 +568,7 @@ function alignVertically(
     wishes.get(edge.to)!.push({ other: edge.from, delta: -edge.delta });
   });
 
-  for (let sweep = 0; sweep < ALIGN_SWEEPS; sweep += 1) {
+  for (let sweep = 0; sweep < sweeps; sweep += 1) {
     const forward = sweep % 2 === 0;
     const order = columns.map((_, index) => (forward ? index : columns.length - 1 - index));
     order.forEach((columnIndex) => {
@@ -447,9 +590,9 @@ function alignVertically(
       });
       const offsets: number[] = [];
       let offset = 0;
-      column.forEach((id) => {
+      column.forEach((id, index) => {
         offsets.push(offset);
-        offset += byId.get(id)!.height + ROW_GAP;
+        if (index + 1 < column.length) offset += stackStep(byId.get(id)!, byId.get(column[index + 1])!);
       });
       const solved = isotonic(
         desired.map((value, index) => value - offsets[index]),
@@ -485,17 +628,21 @@ export function isotonic(values: number[], weights: number[]): number[] {
 /* ------------------- tablas sueltas y empaquetado ------------------- */
 
 /** Tablas sin relaciones: rejilla alfabética, columnas del ancho de su tabla más ancha. */
-function layoutIsolated(isolated: Node[], aspect: number): Block {
+function preferredIsolatedColumns(isolated: Node[], aspect: number): number {
+  const averageWidth = isolated.reduce((sum, node) => sum + node.slot + ISOLATED_GAP_X, 0) / isolated.length;
+  const averageHeight = isolated.reduce((sum, node) => sum + outerHeight(node) + ISOLATED_GAP_Y, 0) / isolated.length;
+  return Math.max(1, Math.min(isolated.length, Math.round(Math.sqrt((isolated.length * averageHeight * aspect) / averageWidth))));
+}
+
+function layoutIsolated(isolated: Node[], columns: number): Block {
   const sorted = [...isolated].sort((a, b) => compareTables(a.table, b.table));
-  const averageWidth = sorted.reduce((sum, node) => sum + node.slot + ISOLATED_GAP_X, 0) / sorted.length;
-  const averageHeight = sorted.reduce((sum, node) => sum + node.height + ISOLATED_GAP_Y, 0) / sorted.length;
-  const columnCount = Math.max(1, Math.min(sorted.length, Math.round(Math.sqrt((sorted.length * averageHeight * aspect) / averageWidth))));
+  const columnCount = Math.max(1, Math.min(sorted.length, columns));
   const rows = Math.ceil(sorted.length / columnCount);
   const columnWidths = new Array<number>(columnCount).fill(0);
   const rowHeights = new Array<number>(rows).fill(0);
   sorted.forEach((node, index) => {
     columnWidths[index % columnCount] = Math.max(columnWidths[index % columnCount], node.slot);
-    rowHeights[Math.floor(index / columnCount)] = Math.max(rowHeights[Math.floor(index / columnCount)], node.height);
+    rowHeights[Math.floor(index / columnCount)] = Math.max(rowHeights[Math.floor(index / columnCount)], outerHeight(node));
   });
   const columnX = columnWidths.map((_, index) => columnWidths.slice(0, index).reduce((sum, width) => sum + width + ISOLATED_GAP_X, 0));
   const rowY = rowHeights.map((_, index) => rowHeights.slice(0, index).reduce((sum, height) => sum + height + ISOLATED_GAP_Y, 0));
@@ -504,7 +651,7 @@ function layoutIsolated(isolated: Node[], aspect: number): Block {
     const column = index % columnCount;
     positions.set(node.table.id, {
       x: columnX[column] + (columnWidths[column] - node.width) / 2,
-      y: rowY[Math.floor(index / columnCount)],
+      y: rowY[Math.floor(index / columnCount)] + node.padY,
     });
   });
   return {
@@ -518,14 +665,30 @@ function layoutIsolated(isolated: Node[], aspect: number): Block {
 function packBlocks(blocks: Block[], aspect: number): Block {
   if (blocks.length === 1) return blocks[0];
   const totalArea = blocks.reduce((sum, block) => sum + (block.width + COMPONENT_GAP) * (block.height + COMPONENT_GAP), 0);
-  const shelfWidth = Math.max(...blocks.map((block) => block.width), Math.sqrt(totalArea * aspect));
+  const widest = Math.max(...blocks.map((block) => block.width));
+  const allInRow = blocks.reduce((sum, block) => sum + block.width + COMPONENT_GAP, -COMPONENT_GAP);
+  // Ancho de estante: el de la proporción por área y otros entre el bloque más ancho y todos en fila.
+  const candidates = [Math.max(widest, Math.sqrt(totalArea * aspect))];
+  for (let step = 0; step < SHELF_CANDIDATES; step += 1) {
+    candidates.push(widest * Math.pow(Math.max(1, allInRow / widest), step / (SHELF_CANDIDATES - 1)));
+  }
+  let best: Block | null = null;
+  candidates.forEach((shelfWidth) => {
+    const packed = packShelves(blocks, shelfWidth);
+    if (!best || shapeScore(packed, aspect) < shapeScore(best, aspect) - 1e-6) best = packed;
+  });
+  return best!;
+}
+
+/** Empaquetado en estantes de un ancho dado. */
+function packShelves(blocks: Block[], shelfWidth: number): Block {
   const positions: LayoutPositions = new Map();
   let x = 0;
   let y = 0;
   let shelfHeight = 0;
   let width = 0;
   blocks.forEach((block) => {
-    if (x > 0 && x + block.width > shelfWidth) {
+    if (x > 0 && x + block.width > shelfWidth + 1e-6) {
       x = 0;
       y += shelfHeight + COMPONENT_GAP;
       shelfHeight = 0;

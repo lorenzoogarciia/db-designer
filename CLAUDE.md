@@ -102,7 +102,7 @@ src/
 - **Panel del navegador oculto**: no corre `requestAnimationFrame` (la cámara escribe el transform en rAF) ni dispara `blur`. Si una prueba "no cambia", comprueba `tabs_context`; las capturas pueden llegar con retraso: repetirlas.
 - **Recarga en caliente de CSS**: a veces la hoja cargada queda desfasada; recargar la página antes de concluir que una regla no funciona.
 - **No engordar las líneas al alejar**: se probó (hasta 7 px) y con proyectos grandes las paralelas se funden en bloques ilegibles. Las líneas adelgazan (2,25 → 1,25 px) y los símbolos de los extremos encogen (16 → 8 px).
-- **Nombres de tabla y campo: siempre completos y en una línea** (decisión del usuario). No ocultarlos ni cortarlos con «…»: en vista general la caja crece (puede montarse sobre la vecina en proyectos densos) y en compacto el texto se ajusta al ancho de la tarjeta con `cqw` y `--len`.
+- **Nombres de tabla y campo: siempre completos y en una línea** (decisión del usuario). No ocultarlos ni cortarlos con «…»: en vista general la caja crece (puede montarse sobre la vecina en proyectos densos; *Organizar* le reserva ancho y alto para que, encuadrado, no ocurra) y en compacto el texto se ajusta al ancho de la tarjeta con `cqw` y `--len`.
 - Los tramos diagonales en rutas vienen de comprobar colisiones solo en horizontal/vertical: `relation-routing.ts` garantiza ortogonalidad por construcción + `enforceOrthogonal`; no reintroducir atajos directos.
 - En Bash, los *heredoc* largos con comillas y backticks fallan con este entorno: escribir scripts auxiliares con la herramienta de escritura en el scratchpad y ejecutarlos.
 

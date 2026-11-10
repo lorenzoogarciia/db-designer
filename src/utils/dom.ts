@@ -35,3 +35,18 @@ export function downloadPngFromCanvas(canvas: HTMLCanvasElement): void {
   link.href = canvas.toDataURL("image/png");
   safeDownloadLink(link);
 }
+
+/**
+ * Medidor del ancho (px) de un texto con la fuente de un elemento de referencia, mediante
+ * canvas. Si no hay referencia usa la fuente del body.
+ */
+export function createTextMeasurer(referenceSelector: string, fontWeight = "600"): (text: string, fontPx: number) => number {
+  const context = document.createElement("canvas").getContext("2d");
+  const reference = document.querySelector(referenceSelector) ?? document.body;
+  const family = getComputedStyle(reference).fontFamily || "sans-serif";
+  return (text, fontPx) => {
+    if (!context) return text.length * fontPx * 0.64;
+    context.font = `${fontWeight} ${fontPx}px ${family}`;
+    return context.measureText(text).width;
+  };
+}

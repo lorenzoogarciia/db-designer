@@ -15,6 +15,7 @@ import { confirmDialog } from "./ui/dialog.ts";
 import { whenUiFontsReady } from "./ui/fonts.ts";
 import { wireShellControls } from "./ui/shell-controls.ts";
 import { showToast } from "./ui/toast.ts";
+import { createTextMeasurer } from "./utils/dom.ts";
 import { wireProjectPanel } from "./ui/project-panel.ts";
 import { createSelectControllers } from "./ui/selects.ts";
 import { mountAppShell } from "./ui/shell.ts";
@@ -116,6 +117,7 @@ arrangeButton?.addEventListener("click", () => {
   const bounds = diagram.getContentBounds();
   const next = computeAutoLayout(tables, relations, {
     getTableWidth: diagram.getTableWidth,
+    measureOverviewName: createTextMeasurer(".table-card h3"),
     viewport: diagram.getViewportSize(),
     origin: bounds ? { x: Math.round(bounds.minX), y: Math.round(bounds.minY) } : undefined,
   });

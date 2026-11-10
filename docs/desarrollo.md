@@ -59,7 +59,7 @@ Pautas:
 | Índices y UNIQUE compuestos | No se modelan (se importan como individuales, con aviso) |
 | PK compuesta | Se conserva (importación, editor), pero los formularios y `applyFieldRules` imponen una sola PK al editar un campo suelto |
 | Relaciones distintas por el mismo pasillo | Pueden superponerse en un tramo; los carriles solo separan relaciones idénticas. Con líneas finas y el resaltado al pasar el ratón se siguen, pero separarlas de verdad exige cambiar el enrutado (`lib/relation-routing.ts`) |
-| Vista general en proyectos densos | Las cajas crecen para que el nombre entre entero en una línea y pueden montarse sobre la vecina (decisión del usuario: nunca ocultar ni cortar nombres). Al pasar el ratón se ponen delante |
+| Vista general en proyectos densos | Las cajas crecen para que el nombre entre entero en una línea (decisión del usuario: nunca ocultar ni cortar nombres). Tras *Organizar*, encuadrado, no se montan; si después se aleja más o se mueven tablas a mano sí pueden montarse. Al pasar el ratón se ponen delante |
 | Nombres muy largos en vista compacta | Se ven enteros pero pequeños: el texto no baja del tamaño de `full` ni pasa del ancho de la tarjeta |
 | Deshacer/rehacer | No existe. El reducer es casi puro, pero `syncActiveProjectFromState`/`saveState` mutan el proyecto (aceptado por ahora) |
 | Exportar PNG en proyectos enormes | Lento (html2canvas): unos 16 s con 160 tablas |
