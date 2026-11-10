@@ -1177,6 +1177,20 @@ html[data-theme="light"] .endpoint {
   border-radius: 10px;
 }
 
+.hud-action {
+  height: 36px;
+  border-radius: 10px;
+  padding: 0 12px 0 11px;
+  border-color: var(--border);
+  background: var(--hud-bg);
+  box-shadow: var(--shadow-2);
+  backdrop-filter: blur(10px);
+}
+
+.hud-action:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
 .hud-primary {
   height: 36px;
   border-radius: 10px;
@@ -2188,6 +2202,29 @@ html[data-theme="dark"] .tc-incoming {
   color: var(--danger-text);
 }
 
+.toast-action {
+  flex: none;
+  align-self: center;
+  margin: -4px -6px -4px 4px;
+  padding: 4px 9px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--accent-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.toast-action:hover {
+  background: var(--surface-hover);
+}
+
+.toast-action:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
 .toast-leaving {
   opacity: 0;
   transform: translateY(6px);
@@ -2326,7 +2363,8 @@ html[data-theme="dark"] .tc-incoming {
     bottom: 64px;
   }
 
-  #fit-btn span {
+  #fit-btn span,
+  #arrange-btn span {
     display: none;
   }
 
@@ -2401,6 +2439,25 @@ html[data-theme="dark"] .tc-incoming {
 .diagram.is-table-dragging .relation-lines-layer,
 .diagram.is-table-dragging .relation-labels-layer {
   opacity: 0.35;
+  transition: none;
+}
+
+/* Organizar: las tarjetas se deslizan a su nuevo sitio y las líneas reaparecen al terminar
+   (duración = LAYOUT_ANIMATION_MS en diagram-controller.ts). */
+.relation-lines-layer,
+.relation-labels-layer {
+  transition: opacity 200ms ease;
+}
+
+.diagram.is-arranging .table-card {
+  transition:
+    transform 520ms var(--ease-out),
+    opacity 120ms ease;
+}
+
+.diagram.is-arranging .relation-lines-layer,
+.diagram.is-arranging .relation-labels-layer {
+  opacity: 0;
   transition: none;
 }
 

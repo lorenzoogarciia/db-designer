@@ -20,17 +20,37 @@ function getContainer(): HTMLDivElement {
   return container;
 }
 
-/** Aviso no bloqueante en la esquina inferior; sustituye a window.alert. */
-export function showToast(message: string, kind: ToastKind = "info"): void {
+export interface ToastAction {
+  /** Texto del botón (p. ej. «Deshacer»). */
+  label: string;
+  onAction: () => void;
+}
+
+/** Aviso no bloqueante en la esquina inferior; sustituye a window.alert. Admite un botón de acción. */
+export function showToast(message: string, kind: ToastKind = "info", action?: ToastAction): void {
   const toast = document.createElement("div");
   toast.className = `toast toast-${kind}`;
   const text = document.createElement("span");
   text.textContent = message;
   toast.append(iconNode(kind === "success" ? "checkCircle" : kind === "error" ? "alert" : "info", 17), text);
+  if (action) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "toast-action";
+    button.textContent = action.label;
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toast.remove();
+      action.onAction();
+    });
+    toast.append(button);
+  }
   toast.addEventListener("click", () => toast.remove());
   getContainer().append(toast);
+  // Con acción, más tiempo para poder usarla.
+  const duration = TOAST_DURATION_MS[kind] + (action ? 4000 : 0);
   window.setTimeout(() => {
     toast.classList.add("toast-leaving");
     window.setTimeout(() => toast.remove(), 250);
-  }, TOAST_DURATION_MS[kind]);
+  }, duration);
 }

@@ -1,5 +1,6 @@
 import { wireCanvasInteractions } from "./diagram/canvas-interactions.ts";
-import { createDiagramController } from "./diagram/diagram-controller.ts";
+import { computeAutoLayout } from "./diagram/auto-layout.ts";
+import { createDiagramController, LAYOUT_ANIMATION_MS } from "./diagram/diagram-controller.ts";
 import { wireZoomInput } from "./ui/zoom-input.ts";
 import { loadInitialState, saveState } from "./persistence/storage.ts";
 import { exportDiagramAsPng } from "./services/png-export.ts";
@@ -100,6 +101,44 @@ zoomOutButton.addEventListener("click", () => diagram.zoomBy(1 / 1.25));
 zoomInButton.addEventListener("click", () => diagram.zoomBy(1.25));
 fitButton.addEventListener("click", () => diagram.fitContentToViewport(true));
 wireZoomInput(zoomInput, diagram);
+
+// Organizar: recoloca todas las tablas según sus claves foráneas (con «Deshacer»).
+const arrangeButton = document.querySelector<HTMLButtonElement>("#arrange-btn");
+function applyPositions(positions: Record<string, { x: number; y: number }>) {
+  diagram.stopCameraAnimation();
+  diagram.animateNextLayoutChange();
+  store.dispatch({ type: "SET_TABLE_POSITIONS", positions });
+  diagram.fitContentToViewport(true, LAYOUT_ANIMATION_MS);
+}
+arrangeButton?.addEventListener("click", () => {
+  const { tables, relations } = store.getState();
+  if (tables.length === 0) return;
+  const bounds = diagram.getContentBounds();
+  const next = computeAutoLayout(tables, relations, {
+    getTableWidth: diagram.getTableWidth,
+    viewport: diagram.getViewportSize(),
+    origin: bounds ? { x: Math.round(bounds.minX), y: Math.round(bounds.minY) } : undefined,
+  });
+  const previous = Object.fromEntries(tables.map((table) => [table.id, { x: table.x, y: table.y }]));
+  if (tables.every((table) => next.get(table.id)?.x === table.x && next.get(table.id)?.y === table.y)) {
+    diagram.fitContentToViewport(true);
+    showToast("Las tablas ya están organizadas.", "info");
+    return;
+  }
+  const projectId = store.getState().activeProjectId;
+  applyPositions(Object.fromEntries(next));
+  showToast("Tablas organizadas según sus relaciones.", "success", {
+    label: "Deshacer",
+    onAction: () => {
+      if (store.getState().activeProjectId === projectId) applyPositions(previous);
+    },
+  });
+});
+function syncArrangeButton() {
+  if (arrangeButton) arrangeButton.disabled = store.getState().tables.length < 2;
+}
+syncArrangeButton();
+store.subscribe(syncArrangeButton);
 exportButton.addEventListener("click", () => void exportDiagramAsPng(diagram));
 
 selects.refreshProjectSelect();

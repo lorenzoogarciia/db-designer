@@ -57,6 +57,7 @@ AppState { projects, activeProjectId, tables, relations, zoom }  // tables/relat
 | `REMOVE_RELATION {relationId}` | Borra |
 | `SET_ZOOM {zoom}` | Guarda el zoom (acotado a 0,02–2,5) |
 | `UPDATE_TABLE_POSITION {tableId, x, y}` | Mueve una tabla |
+| `SET_TABLE_POSITIONS {positions}` | Recoloca varias tablas a la vez (*Organizar* y su *Deshacer*); `positions` es `{ [tableId]: {x, y} }`. Guardado inmediato |
 | `CREATE_PROJECT / RENAME_PROJECT / DELETE_PROJECT / SWITCH_PROJECT` | Gestión de proyectos (no se puede borrar el último) |
 | `IMPORT_PROJECT {project, projectId?, mergeIntoExistingId?}` | Añade un proyecto o reemplaza tablas/relaciones de uno existente |
 

@@ -99,6 +99,24 @@ Cualquier interacción detiene una animación de cámara en curso. Barra de herr
 - `estimateTableWidth` (estimación por caracteres, usada antes de medir) y `getTableHeight`.
 - `chooseAnchors`: elige lados enfrentados según la posición relativa; el anclaje horizontal va a la altura de la fila del campo (`64 + 42 × índice + 21`).
 
+## Organizar (`auto-layout.ts`)
+
+Botón *Organizar* de la barra superior del lienzo. `computeAutoLayout(tablas, relaciones, {getTableWidth, viewport, origin})` es pura y devuelve la posición de cada tabla; `main.ts` la aplica con `SET_TABLE_POSITIONS` (una sola acción, guardado inmediato) y ofrece *Deshacer* en el aviso con las posiciones anteriores.
+
+Algoritmo (disposición por capas, de izquierda a derecha):
+
+1. **Componentes**: grafo de FKs (sin autorrelaciones). Las tablas sin relaciones forman una rejilla alfabética aparte.
+2. **Capas**: camino más largo (una tabla va a la derecha de las que referencia; los ciclos se rompen por DFS) y después cada tabla se acerca a sus hijas para acortar líneas.
+3. **Orden** dentro de la capa: baricentro de las vecinas, 16 pasadas alternas.
+4. **Subcolumnas**: una capa más alta que `√(área / proporción) × 1,1` se reparte en varias columnas equilibradas.
+5. **X**: columnas con el ancho de su tabla más ancha (tablas centradas) y pasillos de 120 px + 9 px por cada línea que los cruza (máx. 300), para que el enrutado tenga sitio.
+6. **Y**: cada tabla quiere alinear la fila de su FK con la fila referenciada (líneas horizontales rectas). Por columna se resuelve con regresión isotónica ponderada (PAV), que respeta el orden y la separación de 64 px; 14 pasadas alternas.
+7. **Empaquetado**: los componentes, de mayor a menor, en estantes con la proporción del lienzo (acotada a 0,8–2,4).
+
+**Vista general**: si el encuadre previsto cae por debajo del 33 %, el nombre se pinta a tamaño fijo en pantalla y la caja puede crecer más que la tabla. Se reservan huecos con ese ancho (`overviewBoxWorldWidth`) siempre que el encuadre no pierda más de un 15 %; si no cabe, se prueba una reserva parcial (hasta 2×, 1,6×… el ancho real). En proyectos muy grandes puede seguir habiendo roces entre nombres al encuadrar.
+
+El resultado es determinista y su esquina coincide con la del contenido anterior, así que organizar dos veces seguidas no mueve nada («Las tablas ya están organizadas»). Animación: `animateNextLayoutChange` pone `.is-arranging` en `#diagram` durante `LAYOUT_ANIMATION_MS` (520 ms): las tarjetas se deslizan con `transition` y las capas de relaciones se ocultan hasta que llegan; la cámara encuadra a la vez.
+
 ## Rendimiento
 
 - Zoom y desplazamiento: un solo `transform` más variables CSS cuantizadas; sin render.

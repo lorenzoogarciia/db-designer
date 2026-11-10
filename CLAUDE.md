@@ -44,7 +44,7 @@ src/
 │   ├── many-to-many.ts        Tablas intermedias N:M (buildJunction, expandManyToMany)
 │   ├── table-draft.ts         Borradores del editor de tablas, FK sugeridas, build/validate
 │   ├── defaults.ts, ids.ts    Proyecto de ejemplo; generateId, safeName, clamp
-├── state/store.ts             Store propio: reducer con 20 acciones + persistencia con debounce
+├── state/store.ts             Store propio: reducer con 21 acciones + persistencia con debounce
 ├── persistence/               localStorage (storage.ts) e import/export JSON (project-io.ts)
 ├── services/
 │   ├── sql-generator.ts       DDL por dialecto (orden por dependencias, FKs con nombre, avisos)
@@ -58,6 +58,7 @@ src/
 │   ├── relation-renderer.ts   Marcado SVG de relaciones + símbolos de cardinalidad
 │   ├── relation-label-placement.ts  Colocación de etiquetas sin colisiones
 │   ├── layout.ts              Medidas de tabla, anclajes, huecos libres (findFreeTablePosition)
+│   ├── auto-layout.ts         Botón «Organizar»: disposición por capas según las FKs (pura)
 │   └── constants.ts, card-style.ts
 ├── lib/
 │   ├── relation-routing.ts    Rutas ortogonales (A* sobre rejilla con coste por giro)

@@ -181,6 +181,7 @@ export function mountAppShell(app: HTMLElement): void {
             <div id="diagram-table-search" class="searchable-select-host diagram-table-search"></div>
           </div>
           <div class="hud-spacer"></div>
+          <button id="arrange-btn" type="button" class="btn btn-secondary hud-action" title="Organizar automáticamente todas las tablas según sus claves foráneas">${icon("arrange")}<span>Organizar</span></button>
           <button id="new-table-btn" type="button" class="btn btn-primary hud-primary" title="Nueva tabla (tecla N o doble clic en el lienzo)">${icon("plus")}<span>Nueva tabla</span><kbd>N</kbd></button>
         </div>
 

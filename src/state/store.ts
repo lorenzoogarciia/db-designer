@@ -57,6 +57,8 @@ export type Action =
   | { type: "UPDATE_RELATION"; relationId: string; relation: RelationInput }
   | { type: "SET_ZOOM"; zoom: number }
   | { type: "UPDATE_TABLE_POSITION"; tableId: string; x: number; y: number }
+  /** Recoloca varias tablas a la vez (organizar, deshacer): un solo cambio y un solo guardado. */
+  | { type: "SET_TABLE_POSITIONS"; positions: Record<string, { x: number; y: number }> }
   | { type: "CREATE_PROJECT"; name: string; projectId: string }
   | { type: "RENAME_PROJECT"; name: string }
   | { type: "DELETE_PROJECT" }
@@ -229,6 +231,13 @@ export function reducer(state: AppState, action: Action): AppState {
       const tables = state.tables.map((table) =>
         table.id === action.tableId ? { ...table, x: action.x, y: action.y } : table,
       );
+      return { ...state, tables };
+    }
+    case "SET_TABLE_POSITIONS": {
+      const tables = state.tables.map((table) => {
+        const position = action.positions[table.id];
+        return position ? { ...table, x: position.x, y: position.y } : table;
+      });
       return { ...state, tables };
     }
     case "CREATE_PROJECT": {

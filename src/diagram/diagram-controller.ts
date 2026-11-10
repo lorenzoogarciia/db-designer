@@ -79,6 +79,9 @@ export function formatZoom(zoom: number): string {
   return `${percent < 10 ? percent.toFixed(1).replace(/\.0$/, "") : Math.round(percent)}%`;
 }
 
+/** Duración del deslizamiento de tarjetas al organizar (coincide con el CSS de `.is-arranging`). */
+export const LAYOUT_ANIMATION_MS = 520;
+
 export interface DiagramController {
   render: () => void;
   getDiagramElement: () => HTMLDivElement;
@@ -87,7 +90,7 @@ export interface DiagramController {
   /** Limites del contenido en coordenadas del mundo (null si no hay tablas). */
   getContentBounds: () => WorldBounds | null;
   getTableWidth: (table: Table) => number;
-  fitContentToViewport: (animate?: boolean) => void;
+  fitContentToViewport: (animate?: boolean, durationMs?: number) => void;
   focusTable: (tableId: string) => void;
   /** Desplaza la camara lo justo para que la tabla se vea, sin cambiar el zoom si ya es legible. */
   revealTable: (tableId: string) => void;
@@ -98,6 +101,10 @@ export interface DiagramController {
   /** Punto del mundo que se ve en el centro del viewport. */
   getViewportCenterWorld: () => { x: number; y: number };
   stopCameraAnimation: () => void;
+  /** Tamaño del lienzo en px de pantalla. */
+  getViewportSize: () => { width: number; height: number };
+  /** Anima el siguiente cambio de posiciones (organizar, deshacer): las tarjetas se deslizan. */
+  animateNextLayoutChange: () => void;
   beginTableDrag: (tableId: string) => void;
   endTableDrag: () => void;
 }
@@ -349,11 +356,22 @@ export function createDiagramController(
     setCamera(zoomAround(camera, zoom, focus.x, focus.y));
   }
 
-  function fitContentToViewport(animate = false) {
+  let layoutAnimationTimer: ReturnType<typeof setTimeout> | null = null;
+  function animateNextLayoutChange() {
+    // Las líneas se ocultan mientras las tarjetas se deslizan y reaparecen ya en su sitio.
+    if (layoutAnimationTimer !== null) clearTimeout(layoutAnimationTimer);
+    diagramElement.classList.add("is-arranging");
+    layoutAnimationTimer = setTimeout(() => {
+      layoutAnimationTimer = null;
+      diagramElement.classList.remove("is-arranging");
+    }, LAYOUT_ANIMATION_MS);
+  }
+
+  function fitContentToViewport(animate = false, durationMs?: number) {
     const target = contentBounds
       ? fitCamera(contentBounds, viewportWidth, viewportHeight)
       : { x: viewportWidth / 2, y: viewportHeight / 2, zoom: 1 };
-    if (animate) animateCamera(target);
+    if (animate) animateCamera(target, durationMs);
     else {
       stopCameraAnimation();
       setCamera(target, { immediate: true });
@@ -563,6 +581,8 @@ export function createDiagramController(
     },
     getViewportCenterWorld: () => screenToWorld(camera, viewportWidth / 2, viewportHeight / 2),
     stopCameraAnimation,
+    getViewportSize: () => ({ width: viewportWidth, height: viewportHeight }),
+    animateNextLayoutChange,
     beginTableDrag: (tableId: string) => {
       draggingTableId = tableId;
       cancelPendingRelationPaint();
